@@ -1,0 +1,22 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "🚀 Create & Upload to GitHub",
+      "type": "shell",
+      "command": ".\\upload_to_github.bat",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "new",
+        "focus": true
+      }
+    },
+    {
+      "label": "⚡ Start Web Server",
+      "type": "shell",
+      "command": "python run.py",
+      "problemMatcher": []
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "⚡ Run Relink AI Web Server",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/run.py",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "🧪 Run Unit & Matching Tests",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/tests/test_matching.py",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "🌱 Re-Seed Demo Data",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/sample_data/seed_demo.py",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    }
+  ]
+}
