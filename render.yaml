@@ -9,5 +9,3 @@ services:
         sync: false
       - key: HOST
         value: 0.0.0.0
-      - key: PORT
-        value: 8000

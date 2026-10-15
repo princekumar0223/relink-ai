@@ -56,6 +56,12 @@ app.mount("/uploads", StaticFiles(directory=str(settings.UPLOADS_DIR)), name="up
 FRONTEND_DIR = PROJECT_ROOT / "frontend"
 if FRONTEND_DIR.exists():
     app.mount("/assets", StaticFiles(directory=str(FRONTEND_DIR)), name="assets")
+    css_dir = FRONTEND_DIR / "css"
+    if css_dir.exists():
+        app.mount("/css", StaticFiles(directory=str(css_dir)), name="css")
+    js_dir = FRONTEND_DIR / "js"
+    if js_dir.exists():
+        app.mount("/js", StaticFiles(directory=str(js_dir)), name="js")
 
 @app.get("/")
 def serve_index():
