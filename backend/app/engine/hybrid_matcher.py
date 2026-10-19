@@ -140,6 +140,25 @@ class HybridMatcher:
                     result["visual_score"], result["text_score"], result["geo_score"],
                     result["composite_score"], result["distance_meters"], result["ai_reasoning"]
                 ))
+                
+                # Fetch match record to check email notification status
+                cursor.execute("SELECT id, email_notified FROM matches WHERE lost_item_id = ? AND found_item_id = ?",
+                               (result["lost_item_id"], result["found_item_id"]))
+                match_row = cursor.fetchone()
+                if match_row:
+                    m_id = match_row[0]
+                    notified = bool(match_row[1]) if len(match_row) > 1 and match_row[1] is not None else False
+                    result["id"] = m_id
+                    
+                    # User condition: if AI matching score >= 70% (0.70), send email notification to lost item owner
+                    if result["composite_score"] >= settings.EMAIL_ALERT_THRESHOLD and not notified:
+                        try:
+                            from ..utils.email_notifier import send_match_notification
+                            send_match_notification(lost_i, found_i, result, conn)
+                            cursor.execute("UPDATE matches SET email_notified = 1 WHERE id = ?", (m_id,))
+                        except Exception as e:
+                            print(f"[WARN] Failed to send email alert: {e}")
+                
                 matches_found.append(result)
                 
         conn.commit()
@@ -179,6 +198,22 @@ class HybridMatcher:
                         res["visual_score"], res["text_score"], res["geo_score"],
                         res["composite_score"], res["distance_meters"], res["ai_reasoning"]
                     ))
+                    
+                    cursor.execute("SELECT id, email_notified FROM matches WHERE lost_item_id = ? AND found_item_id = ?",
+                                   (res["lost_item_id"], res["found_item_id"]))
+                    m_row = cursor.fetchone()
+                    if m_row:
+                        m_id = m_row[0]
+                        notified = bool(m_row[1]) if len(m_row) > 1 and m_row[1] is not None else False
+                        res["id"] = m_id
+                        if res["composite_score"] >= settings.EMAIL_ALERT_THRESHOLD and not notified:
+                            try:
+                                from ..utils.email_notifier import send_match_notification
+                                send_match_notification(l_item, f_item, res, conn)
+                                cursor.execute("UPDATE matches SET email_notified = 1 WHERE id = ?", (m_id,))
+                            except Exception as e:
+                                print(f"[WARN] Failed to send email alert during recalculation: {e}")
+                                
                     total_created += 1
         conn.commit()
         return total_created

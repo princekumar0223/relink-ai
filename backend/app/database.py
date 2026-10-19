@@ -64,8 +64,46 @@ def init_db():
         secret_verification_answer TEXT,
         proof_details TEXT,
         status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'approved', 'rejected')),
+        reward_amount REAL DEFAULT 0,
+        reward_status TEXT DEFAULT 'none',
+        reward_note TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (match_id) REFERENCES matches (id) ON DELETE CASCADE
+    );
+    """)
+    
+    # Rewards Table (Receiver rewards Founder upon item handover)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS rewards (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        claim_id INTEGER,
+        match_id INTEGER NOT NULL,
+        sender_name TEXT NOT NULL,
+        receiver_name TEXT NOT NULL,
+        receiver_upi TEXT,
+        amount REAL NOT NULL,
+        currency TEXT NOT NULL DEFAULT 'INR',
+        message TEXT,
+        payment_mode TEXT DEFAULT 'UPI',
+        status TEXT NOT NULL DEFAULT 'completed',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (match_id) REFERENCES matches (id) ON DELETE CASCADE
+    );
+    """)
+    
+    # Automated Email Notifications Table
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS notifications (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        recipient_email TEXT NOT NULL,
+        recipient_name TEXT,
+        item_id INTEGER,
+        match_id INTEGER,
+        subject TEXT NOT NULL,
+        body TEXT NOT NULL,
+        match_score REAL,
+        status TEXT NOT NULL DEFAULT 'logged',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
     """)
     
@@ -76,6 +114,20 @@ def init_db():
         value TEXT NOT NULL
     );
     """)
+    
+    # Safe migrations for existing databases
+    migrations = [
+        "ALTER TABLE items ADD COLUMN upi_id TEXT",
+        "ALTER TABLE matches ADD COLUMN email_notified INTEGER DEFAULT 0",
+        "ALTER TABLE claims ADD COLUMN reward_amount REAL DEFAULT 0",
+        "ALTER TABLE claims ADD COLUMN reward_status TEXT DEFAULT 'none'",
+        "ALTER TABLE claims ADD COLUMN reward_note TEXT"
+    ]
+    for stmt in migrations:
+        try:
+            cursor.execute(stmt)
+        except Exception:
+            pass  # Column already exists
     
     conn.commit()
     conn.close()

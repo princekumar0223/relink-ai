@@ -17,6 +17,7 @@ class ItemBase(BaseModel):
     contact_email: str = Field(..., max_length=150)
     contact_phone: Optional[str] = None
     custody_location: Optional[str] = None
+    upi_id: Optional[str] = None
 
 class ItemCreate(ItemBase):
     pass
@@ -59,6 +60,13 @@ class ClaimCreate(BaseModel):
     secret_verification_answer: Optional[str] = None
     proof_details: Optional[str] = None
 
+class RewardCreate(BaseModel):
+    amount: float = Field(..., gt=0)
+    message: Optional[str] = "Thank you so much for finding my item!"
+    sender_name: Optional[str] = "Item Owner"
+    payment_mode: Optional[str] = "UPI"
+    upi_id: Optional[str] = None
+
 class ClaimResponse(BaseModel):
     id: int
     match_id: int
@@ -67,6 +75,9 @@ class ClaimResponse(BaseModel):
     secret_verification_answer: Optional[str]
     proof_details: Optional[str]
     status: str
+    reward_amount: Optional[float] = 0.0
+    reward_status: Optional[str] = "none"
+    reward_note: Optional[str] = None
     created_at: str
 
 class AIAnalyzeImageResponse(BaseModel):

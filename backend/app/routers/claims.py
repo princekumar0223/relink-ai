@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 import sqlite3
 from ..database import get_db
-from ..schemas import ClaimCreate
+from ..schemas import ClaimCreate, RewardCreate
 from ..config import settings
 
 router = APIRouter(prefix="/api/claims", tags=["claims"])
@@ -40,7 +40,8 @@ def list_claims(db: sqlite3.Connection = Depends(get_db)):
            l.title as lost_title, l.description as lost_desc, l.image_path as lost_image,
            l.contact_name as owner_name, l.contact_email as owner_email, l.contact_phone as owner_phone,
            f.title as found_title, f.description as found_desc, f.image_path as found_image,
-           f.custody_location, f.contact_name as founder_name, f.contact_email as founder_email, f.contact_phone as founder_phone
+           f.custody_location, f.contact_name as founder_name, f.contact_email as founder_email, f.contact_phone as founder_phone,
+           f.upi_id as founder_upi
     FROM claims c
     JOIN matches m ON c.match_id = m.id
     JOIN items l ON m.lost_item_id = l.id
@@ -55,7 +56,8 @@ def get_claims_for_match(match_id: int, db: sqlite3.Connection = Depends(get_db)
     cursor.execute("""
     SELECT c.*, m.lost_item_id, m.found_item_id, m.composite_score,
            l.title as lost_title, f.title as found_title, f.custody_location,
-           f.contact_name as founder_name, f.contact_email as founder_email, f.contact_phone as founder_phone
+           f.contact_name as founder_name, f.contact_email as founder_email, f.contact_phone as founder_phone,
+           f.upi_id as founder_upi
     FROM claims c
     JOIN matches m ON c.match_id = m.id
     JOIN items l ON m.lost_item_id = l.id
@@ -105,6 +107,64 @@ def reject_claim(claim_id: int, db: sqlite3.Connection = Depends(get_db)):
         "message": "Claim rejected. Verification answers did not match found item details."
     }
 
+@router.post("/{claim_id}/reward")
+def send_reward(claim_id: int, reward: RewardCreate, db: sqlite3.Connection = Depends(get_db)):
+    cursor = db.cursor()
+    cursor.execute("""
+    SELECT c.*, m.lost_item_id, m.found_item_id,
+           f.contact_name as founder_name, f.contact_phone as founder_phone, f.upi_id as founder_upi,
+           l.contact_name as owner_name
+    FROM claims c
+    JOIN matches m ON c.match_id = m.id
+    JOIN items f ON m.found_item_id = f.id
+    JOIN items l ON m.lost_item_id = l.id
+    WHERE c.id = ?
+    """, (claim_id,))
+    row = cursor.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Claim not found.")
+    
+    claim = dict(row)
+    founder_name = claim.get("founder_name") or "Founder"
+    founder_upi = reward.upi_id or claim.get("founder_upi") or claim.get("founder_phone") or ""
+    sender_name = reward.sender_name or claim.get("claimant_name") or claim.get("owner_name") or "Owner"
+    
+    # Insert into rewards table
+    cursor.execute("""
+    INSERT INTO rewards (
+        claim_id, match_id, sender_name, receiver_name, receiver_upi,
+        amount, currency, message, payment_mode, status
+    ) VALUES (?, ?, ?, ?, ?, ?, 'INR', ?, ?, 'completed')
+    """, (
+        claim_id, claim["match_id"], sender_name, founder_name, founder_upi,
+        reward.amount, reward.message, reward.payment_mode
+    ))
+    reward_id = cursor.lastrowid
+    
+    # Update claim table
+    cursor.execute("""
+    UPDATE claims
+    SET reward_amount = ?, reward_status = 'rewarded', reward_note = ?
+    WHERE id = ?
+    """, (reward.amount, reward.message, claim_id))
+    
+    db.commit()
+    
+    return {
+        "status": "success",
+        "reward_id": reward_id,
+        "amount": reward.amount,
+        "founder_name": founder_name,
+        "founder_upi": founder_upi,
+        "message": f"🎉 Reward of ₹{int(reward.amount) if reward.amount.is_integer() else reward.amount} recorded for founder {founder_name}!"
+    }
+
+@router.get("/notifications/all")
+def get_notifications(db: sqlite3.Connection = Depends(get_db)):
+    cursor = db.cursor()
+    cursor.execute("SELECT * FROM notifications ORDER BY created_at DESC LIMIT 50")
+    return [dict(r) for r in cursor.fetchall()]
+
 @router.get("/stats/summary")
 def get_system_stats(db: sqlite3.Connection = Depends(get_db)):
     cursor = db.cursor()
@@ -123,6 +183,14 @@ def get_system_stats(db: sqlite3.Connection = Depends(get_db)):
     cursor.execute("SELECT COUNT(*) FROM claims WHERE status = 'pending'")
     pending_claims = cursor.fetchone()[0]
     
+    cursor.execute("SELECT COUNT(*), COALESCE(SUM(amount), 0) FROM rewards")
+    reward_row = cursor.fetchone()
+    total_rewards_given = reward_row[0] if reward_row else 0
+    total_reward_amount = reward_row[1] if reward_row else 0
+    
+    cursor.execute("SELECT COUNT(*) FROM notifications")
+    total_notifications = cursor.fetchone()[0]
+    
     has_key = bool(settings.GEMINI_API_KEY and len(settings.GEMINI_API_KEY.strip()) > 5)
     
     return {
@@ -131,6 +199,9 @@ def get_system_stats(db: sqlite3.Connection = Depends(get_db)):
         "active_matches": active_matches,
         "reunited_items": reunited_items,
         "pending_claims": pending_claims,
+        "total_rewards_given": total_rewards_given,
+        "total_reward_amount": total_reward_amount,
+        "total_notifications": total_notifications,
         "gemini_ai_active": has_key,
         "engine_mode": "Gemini 3.8 Flash Multimodal" if has_key else "Local CV & Geo Proximity"
     }

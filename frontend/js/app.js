@@ -36,6 +36,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   setupForms();
   setupGeolocationDetectors();
   setupApiKeyManager();
+  setupRewardManager();
+  setupNotificationsManager();
   
   await refreshAll();
   
@@ -67,6 +69,16 @@ function updateStatsUI(stats) {
   document.getElementById("stat-found").textContent = stats.total_found;
   document.getElementById("stat-matches").textContent = stats.active_matches;
   document.getElementById("stat-reunited").textContent = stats.reunited_items;
+
+  const rewardEl = document.getElementById("stat-rewards");
+  if (rewardEl) {
+    rewardEl.textContent = `₹${stats.total_reward_amount || 0}`;
+  }
+
+  const notifBadge = document.getElementById("nav-notifications-badge");
+  if (notifBadge) {
+    notifBadge.textContent = stats.total_notifications || 0;
+  }
 
   // Pending claims badge
   const pendingPill = document.getElementById("nav-pending-claims-badge");
@@ -280,11 +292,27 @@ function renderClaimCard(claim) {
             <span>✓ Approve & Release Item</span>
           </button>
         </div>
-      ` : `
-        <div class="text-xs font-semibold ${claim.status === 'approved' ? 'text-emerald-400' : 'text-slate-500'}">
-          ${claim.status === 'approved' ? '🎉 Item officially released to verified owner!' : 'Claim decision archived.'}
+      ` : (claim.status === 'approved' ? `
+        <div class="flex flex-wrap items-center gap-2.5">
+          <span class="text-xs font-semibold text-emerald-400">🎉 Item Reunited!</span>
+          ${claim.reward_amount && claim.reward_amount > 0 ? `
+            <div class="flex items-center gap-2">
+              <span class="px-3 py-1.5 rounded-xl bg-amber-950/60 border border-amber-500/40 text-amber-300 font-bold text-xs flex items-center gap-1.5 shadow">
+                <span>🎁 Reward Paid: ₹${claim.reward_amount}</span>
+              </span>
+              ${claim.reward_note ? `<span class="text-xs text-slate-300 italic">"${claim.reward_note}"</span>` : ''}
+            </div>
+          ` : `
+            <button class="btn-reward-founder px-3.5 py-1.5 bg-gradient-to-r from-amber-600 to-yellow-600 hover:from-amber-500 hover:to-yellow-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-amber-600/30 flex items-center gap-1.5 transition-all">
+              <span>🎁 Give Reward to Founder</span>
+            </button>
+          `}
         </div>
-      `}
+      ` : `
+        <div class="text-xs font-semibold text-slate-500">
+          Claim decision archived.
+        </div>
+      `)}
     </div>
   `;
 
@@ -317,6 +345,13 @@ function renderClaimCard(claim) {
         UI.showToast("Rejection failed: " + e.message, "error");
         rejectBtn.disabled = false;
       }
+    });
+  }
+
+  const rewardBtn = card.querySelector(".btn-reward-founder");
+  if (rewardBtn) {
+    rewardBtn.addEventListener("click", () => {
+      openRewardModal(claim);
     });
   }
 
@@ -873,4 +908,167 @@ function debounce(func, wait) {
     clearTimeout(timeout);
     timeout = setTimeout(later, wait);
   };
+}
+
+// Open Reward Modal
+function openRewardModal(claim) {
+  if (!claim) return;
+  const modal = document.getElementById("reward-modal");
+  if (!modal) return;
+
+  document.getElementById("reward-claim-id").value = claim.id;
+  document.getElementById("reward-founder-name").textContent = claim.founder_name || "Campus Security / Founder";
+  document.getElementById("reward-custody-location").textContent = claim.custody_location || "Security Office";
+  
+  const upiId = claim.founder_upi || claim.founder_phone || "";
+  const upiEl = document.getElementById("reward-founder-upi");
+  const upiBox = document.getElementById("reward-upi-box");
+  const upiBtn = document.getElementById("btn-pay-upi-app");
+
+  if (upiId && upiId.trim()) {
+    upiEl.textContent = upiId;
+    upiBox.classList.remove("hidden");
+    const amount = document.getElementById("reward-amount").value || "100";
+    const upiLink = `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(claim.founder_name || 'Founder')}&am=${amount}&tn=${encodeURIComponent('Relink AI - Reward for Found Item')}`;
+    upiBtn.href = upiLink;
+    upiBtn.classList.remove("hidden");
+  } else {
+    upiEl.textContent = "Not specified (Direct Handover / Cash)";
+    upiBtn.classList.add("hidden");
+  }
+
+  modal.showModal();
+}
+
+function setupRewardManager() {
+  const modal = document.getElementById("reward-modal");
+  const closeBtn = document.getElementById("btn-close-reward");
+  if (closeBtn) closeBtn.addEventListener("click", () => modal.close());
+
+  // Preset buttons
+  const presetBtns = document.querySelectorAll(".btn-preset-reward");
+  const amountInput = document.getElementById("reward-amount");
+  const upiBtn = document.getElementById("btn-pay-upi-app");
+
+  presetBtns.forEach(btn => {
+    btn.addEventListener("click", () => {
+      const amt = btn.dataset.amount;
+      amountInput.value = amt;
+      presetBtns.forEach(b => {
+        b.classList.remove("border-amber-500/60", "bg-amber-600/20", "text-amber-300");
+        b.classList.add("border-slate-700", "bg-slate-900", "text-slate-200");
+      });
+      btn.classList.add("border-amber-500/60", "bg-amber-600/20", "text-amber-300");
+      btn.classList.remove("border-slate-700", "bg-slate-900", "text-slate-200");
+
+      const upiText = document.getElementById("reward-founder-upi").textContent;
+      if (upiText && !upiText.includes("Not specified") && upiBtn) {
+        const name = document.getElementById("reward-founder-name").textContent;
+        upiBtn.href = `upi://pay?pa=${encodeURIComponent(upiText)}&pn=${encodeURIComponent(name)}&am=${amt}&tn=${encodeURIComponent('Relink AI - Reward for Found Item')}`;
+      }
+    });
+  });
+
+  if (amountInput) {
+    amountInput.addEventListener("input", () => {
+      const amt = amountInput.value;
+      const upiText = document.getElementById("reward-founder-upi").textContent;
+      if (upiText && !upiText.includes("Not specified") && upiBtn) {
+        const name = document.getElementById("reward-founder-name").textContent;
+        upiBtn.href = `upi://pay?pa=${encodeURIComponent(upiText)}&pn=${encodeURIComponent(name)}&am=${amt}&tn=${encodeURIComponent('Relink AI - Reward for Found Item')}`;
+      }
+    });
+  }
+
+  const form = document.getElementById("form-send-reward");
+  if (form) {
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const claimId = parseInt(document.getElementById("reward-claim-id").value);
+      const amount = parseFloat(document.getElementById("reward-amount").value);
+      const message = document.getElementById("reward-message").value;
+      const submitBtn = document.getElementById("btn-submit-reward");
+
+      if (!amount || amount <= 0) {
+        UI.showToast("Please enter a valid reward amount.", "warning");
+        return;
+      }
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = "Processing Reward...";
+
+      try {
+        const res = await API.sendReward(claimId, {
+          amount: amount,
+          message: message,
+          payment_mode: "UPI / Direct"
+        });
+        UI.showToast(res.message, "success");
+        modal.close();
+        await refreshAll();
+      } catch (err) {
+        UI.showToast("Reward recording failed: " + err.message, "error");
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = `<span>✓ Record & Send Reward</span>`;
+      }
+    });
+  }
+}
+
+function setupNotificationsManager() {
+  const notifBtn = document.getElementById("btn-notifications");
+  const modal = document.getElementById("notifications-modal");
+  const closeBtn = document.getElementById("btn-close-notifications");
+  const container = document.getElementById("notifications-container");
+
+  if (closeBtn) closeBtn.addEventListener("click", () => modal.close());
+
+  if (notifBtn) {
+    notifBtn.addEventListener("click", async () => {
+      modal.showModal();
+      container.innerHTML = `<div class="p-4 text-center text-xs text-slate-400">Loading automated alerts...</div>`;
+      try {
+        const list = await API.getNotifications();
+        container.innerHTML = "";
+        if (!list || list.length === 0) {
+          container.innerHTML = `
+            <div class="p-8 text-center bg-slate-900/40 rounded-xl border border-slate-800 text-xs text-slate-400">
+              <span class="text-3xl block mb-2">🔕</span>
+              <span class="font-semibold text-slate-300 block mb-1">No automated email alerts sent yet.</span>
+              <span>When an AI match reaches or exceeds 70% confidence, an email notification is automatically recorded and sent to the owner.</span>
+            </div>
+          `;
+          return;
+        }
+
+        list.forEach(n => {
+          const card = document.createElement("div");
+          const scorePct = Math.round((n.match_score || 0) * 100);
+          card.className = "p-4 bg-slate-900/80 rounded-xl border border-purple-500/20 hover:border-purple-500/40 transition-all text-xs space-y-2";
+          card.innerHTML = `
+            <div class="flex items-center justify-between">
+              <span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-purple-600/30 text-purple-300 border border-purple-500/40 flex items-center gap-1.5">
+                <span class="w-2 h-2 rounded-full bg-purple-400 animate-ping"></span>
+                ${scorePct}% Match Confidence
+              </span>
+              <span class="text-[10px] text-slate-400 font-mono">${n.created_at}</span>
+            </div>
+            <div class="font-bold text-white text-sm">${n.subject}</div>
+            <div class="text-slate-300 text-[11px] flex flex-wrap items-center gap-x-4 gap-y-1">
+              <span>📧 <strong>To:</strong> ${n.recipient_email} (${n.recipient_name || 'Owner'})</span>
+              <span>📡 <strong>Delivery:</strong> <span class="${n.status === 'sent' ? 'text-emerald-400 font-bold' : 'text-blue-400 font-bold'}">${n.status === 'sent' ? '✓ SMTP Sent' : '✓ Logged & Ready'}</span></span>
+            </div>
+            <details class="cursor-pointer text-[11px] text-slate-400 pt-1 border-t border-slate-800">
+              <summary class="hover:text-purple-300 transition-colors">View Email Content Preview</summary>
+              <pre class="mt-2 p-2.5 bg-slate-950 rounded-lg text-[10px] text-slate-300 whitespace-pre-wrap font-mono">${n.body}</pre>
+            </details>
+          `;
+          container.appendChild(card);
+        });
+      } catch (err) {
+        container.innerHTML = `<div class="p-4 text-center text-xs text-rose-400">Failed to load notifications: ${err.message}</div>`;
+      }
+    });
+  }
 }

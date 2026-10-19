@@ -29,6 +29,15 @@ class Settings(BaseModel):
     # Thresholds
     MATCH_ALERT_THRESHOLD: float = 0.65  # 65% triggers high confidence match
     CANDIDATE_THRESHOLD: float = 0.40    # 40% triggers candidate display
+    EMAIL_ALERT_THRESHOLD: float = 0.70  # >= 70% triggers automatic email notification to lost item owner
+    
+    # Email / SMTP Configuration
+    SMTP_HOST: str = os.getenv("SMTP_HOST", "")
+    SMTP_PORT: int = int(os.getenv("SMTP_PORT", 587))
+    SMTP_USER: str = os.getenv("SMTP_USER", "")
+    SMTP_PASSWORD: str = os.getenv("SMTP_PASSWORD", "")
+    SMTP_FROM: str = os.getenv("SMTP_FROM", "Relink AI Notifications <no-reply@relinkai.com>")
+    APP_URL: str = os.getenv("APP_URL", "https://relink-ai.onrender.com")
     
     # Geospatial decay settings (in meters)
     GEO_PERFECT_DISTANCE_M: float = 150.0      # <= 150m is 100% geo match

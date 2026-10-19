@@ -63,6 +63,10 @@
         <span class="text-blue-400 font-bold" id="stat-reunited">0</span>
         <span class="text-slate-400">Reunited</span>
       </div>
+      <div class="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-amber-950/40 border border-amber-800/40 text-xs" title="Total Rewards Given to Honest Finders">
+        <span class="text-amber-400 font-bold" id="stat-rewards">₹0</span>
+        <span class="text-amber-200/80">Rewards</span>
+      </div>
 
       <!-- Engine Status Pill -->
       <div id="ai-status-badge" class="px-3 py-1.5 rounded-full bg-slate-800 border border-slate-700 flex items-center gap-2 cursor-pointer hover:border-slate-500 transition-colors" title="Click to view Gemini API status">
@@ -93,10 +97,18 @@
       </button>
     </div>
 
-    <button id="btn-recalculate" class="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white border border-slate-800 rounded-xl text-xs font-medium flex items-center gap-1.5 transition-all" title="Refresh match analysis">
-      <span>🔄</span>
-      <span>Sync Matches</span>
-    </button>
+    <div class="flex items-center gap-2">
+      <button id="btn-notifications" class="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 rounded-xl text-xs font-medium flex items-center gap-1.5 transition-all relative" title="View Automated >=70% Match Email Alerts">
+        <span>🔔</span>
+        <span>Email Alerts</span>
+        <span id="nav-notifications-badge" class="px-1.5 py-0.2 rounded-full bg-purple-600 text-[10px] font-bold text-white">0</span>
+      </button>
+
+      <button id="btn-recalculate" class="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white border border-slate-800 rounded-xl text-xs font-medium flex items-center gap-1.5 transition-all" title="Refresh match analysis">
+        <span>🔄</span>
+        <span>Sync Matches</span>
+      </button>
+    </div>
   </nav>
 
   <!-- Main Content Container -->
@@ -396,8 +408,8 @@
             </div>
           </div>
 
-          <!-- Finder Info -->
-          <div class="pt-4 border-t border-slate-800 grid grid-cols-1 md:grid-cols-3 gap-3">
+          <!-- Finder Info & Reward Destination -->
+          <div class="pt-4 border-t border-slate-800 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
             <div>
               <label class="block text-xs font-semibold text-slate-300 mb-1">Finder / Custodian Name *</label>
               <input type="text" name="contact_name" required placeholder="Name or Security Officer" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white">
@@ -409,6 +421,10 @@
             <div>
               <label class="block text-xs font-semibold text-slate-300 mb-1">Phone Number</label>
               <input type="tel" name="contact_phone" placeholder="+91 ..." class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white">
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-amber-300 mb-1">🎁 UPI ID (Optional for Reward)</label>
+              <input type="text" name="upi_id" placeholder="e.g. name@okaxis / paytm" class="w-full bg-slate-900 border border-amber-600/40 rounded-xl px-3 py-2 text-xs text-amber-200 placeholder:text-slate-600 focus:outline-none focus:border-amber-400">
             </div>
           </div>
 
@@ -678,6 +694,90 @@
           Test & Save Key
         </button>
       </form>
+    </div>
+  </dialog>
+
+  <!-- MODAL: Send Reward to Founder -->
+  <dialog id="reward-modal" class="backdrop:bg-black/80 backdrop:backdrop-blur-sm bg-transparent p-0 max-w-lg w-full rounded-2xl text-slate-100 overscroll-contain">
+    <div class="glass-panel-elevated rounded-2xl p-6 border border-amber-500/40 shadow-2xl shadow-amber-500/10">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-800 mb-4">
+        <div class="flex items-center gap-2.5">
+          <span class="text-2xl">🎁</span>
+          <div>
+            <h3 class="font-bold text-base text-white">Reward Honest Founder</h3>
+            <p class="text-[11px] text-amber-300">Express gratitude to the finder who safeguarded your item</p>
+          </div>
+        </div>
+        <button id="btn-close-reward" class="w-7 h-7 rounded-full bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-slate-400 hover:text-white">✕</button>
+      </div>
+
+      <input type="hidden" id="reward-claim-id">
+
+      <!-- Target Founder Card -->
+      <div class="p-3.5 bg-amber-950/20 rounded-xl border border-amber-800/40 mb-4 text-xs space-y-1">
+        <div class="flex items-center justify-between">
+          <span class="text-slate-400">Honest Founder:</span>
+          <span class="font-bold text-white text-sm" id="reward-founder-name">Founder</span>
+        </div>
+        <div class="flex items-center justify-between">
+          <span class="text-slate-400">Safe Custody Handover:</span>
+          <span class="text-emerald-300 font-medium" id="reward-custody-location">Campus Security</span>
+        </div>
+        <div class="flex items-center justify-between pt-1 border-t border-amber-900/40" id="reward-upi-box">
+          <span class="text-slate-400">Founder's UPI ID:</span>
+          <span class="font-mono font-bold text-amber-400" id="reward-founder-upi">Not provided</span>
+        </div>
+      </div>
+
+      <form id="form-send-reward" class="space-y-4">
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 mb-1.5">Select Reward Amount (INR ₹) *</label>
+          <div class="grid grid-cols-4 gap-2 mb-2">
+            <button type="button" class="btn-preset-reward py-2 rounded-xl text-xs font-bold border border-slate-700 bg-slate-900 hover:border-amber-400 text-slate-200 transition-all" data-amount="50">₹50</button>
+            <button type="button" class="btn-preset-reward py-2 rounded-xl text-xs font-bold border border-amber-500/60 bg-amber-600/20 text-amber-300 transition-all" data-amount="100">₹100</button>
+            <button type="button" class="btn-preset-reward py-2 rounded-xl text-xs font-bold border border-slate-700 bg-slate-900 hover:border-amber-400 text-slate-200 transition-all" data-amount="200">₹200</button>
+            <button type="button" class="btn-preset-reward py-2 rounded-xl text-xs font-bold border border-slate-700 bg-slate-900 hover:border-amber-400 text-slate-200 transition-all" data-amount="500">₹500</button>
+          </div>
+          <div class="relative">
+            <span class="absolute left-3.5 top-2.5 text-xs text-amber-400 font-bold">₹</span>
+            <input type="number" id="reward-amount" required min="10" value="100" placeholder="Custom Amount" class="w-full bg-slate-900 border border-slate-700 rounded-xl pl-8 pr-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-amber-400 font-bold">
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 mb-1.5">Thank-You Note (Optional)</label>
+          <textarea id="reward-message" rows="2" placeholder="Thank you so much for finding my belongings and safely handing it over!" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-amber-400"></textarea>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+          <a id="btn-pay-upi-app" href="#" target="_blank" class="hidden py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-1.5 transition-all text-center">
+            <span>📱 Pay via UPI App</span>
+          </a>
+          <button type="submit" id="btn-submit-reward" class="w-full py-3 bg-gradient-to-r from-amber-600 to-yellow-600 hover:from-amber-500 hover:to-yellow-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-amber-600/30 flex items-center justify-center gap-1.5 transition-all">
+            <span>✓ Record & Send Reward</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
+  <!-- MODAL: Email Notifications History (>= 70% Match Alerts) -->
+  <dialog id="notifications-modal" class="backdrop:bg-black/80 backdrop:backdrop-blur-sm bg-transparent p-0 max-w-2xl w-full rounded-2xl text-slate-100 overscroll-contain">
+    <div class="glass-panel-elevated rounded-2xl p-6 border border-purple-500/40 shadow-2xl">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-800 mb-4">
+        <div class="flex items-center gap-2.5">
+          <span class="text-2xl">🔔</span>
+          <div>
+            <h3 class="font-bold text-base text-white">Automatic AI Match Email Alerts (>= 70%)</h3>
+            <p class="text-[11px] text-purple-300">Automated notifications dispatched to lost item owners</p>
+          </div>
+        </div>
+        <button id="btn-close-notifications" class="w-7 h-7 rounded-full bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-slate-400 hover:text-white">✕</button>
+      </div>
+
+      <div id="notifications-container" class="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
+        <!-- Dynamically rendered notification cards -->
+      </div>
     </div>
   </dialog>
 

@@ -118,20 +118,48 @@ def run_integration_checks():
     assert res_approve.status_code == 200
     print(f"  [OK] PATCH /api/claims/{claim_id}/approve passed: {res_approve.json()['message']}")
 
-    # Check stats after approval
+    # 9. Verify Automatic Email Notification (Match >= 70%)
+    res_notifs = client.get("/api/claims/notifications/all")
+    assert res_notifs.status_code == 200
+    notifs = res_notifs.json()
+    assert len(notifs) >= 1, "Expected automated email alert to be triggered for >=70% match"
+    latest_notif = notifs[0]
+    assert latest_notif["recipient_email"] == "rahul.student@campus.edu"
+    assert latest_notif["match_score"] >= 0.70
+    print(f"  [OK] Automatic >=70% Email Alert Triggered:")
+    print(f"       To: {latest_notif['recipient_email']} | Score: {int(latest_notif['match_score']*100)}% | Status: {latest_notif['status']}")
+
+    # 10. Test Receiver Giving Reward to Founder
+    reward_payload = {
+        "amount": 200.0,
+        "message": "Thank you Officer Sharma for keeping my bottle safe!",
+        "sender_name": "Rahul Verma",
+        "payment_mode": "UPI",
+        "upi_id": "security@upi"
+    }
+    res_reward = client.post(f"/api/claims/{claim_id}/reward", json=reward_payload)
+    assert res_reward.status_code == 200, f"Reward submission failed: {res_reward.text}"
+    reward_res_data = res_reward.json()
+    assert reward_res_data["status"] == "success"
+    print(f"  [OK] POST /api/claims/{claim_id}/reward passed: {reward_res_data['message']}")
+
+    # Check stats after reward
     res_stats_after = client.get("/api/claims/stats/summary")
     stats_after = res_stats_after.json()
     assert stats_after["reunited_items"] == 2
-    assert stats_after["pending_claims"] == 0
-    print(f"  [OK] Items officially marked as REUNITED: {stats_after['reunited_items']}")
+    assert stats_after["total_rewards_given"] == 1
+    assert stats_after["total_reward_amount"] == 200.0
+    print(f"  [OK] Stats Verified: Reunited={stats_after['reunited_items']}, Rewards={stats_after['total_rewards_given']} (₹{stats_after['total_reward_amount']})")
 
-    # 9. Clean up test entries so the database is 100% pristine for deployment
+    # 11. Clean up test entries so the database is 100% pristine for deployment
     with db_context() as conn:
+        conn.execute("DELETE FROM rewards")
+        conn.execute("DELETE FROM notifications")
         conn.execute("DELETE FROM claims")
         conn.execute("DELETE FROM matches")
         conn.execute("DELETE FROM items")
         conn.commit()
-    print("  [OK] Database cleaned: 0 Lost, 0 Found, 0 Claims. Ready for deployment!")
+    print("  [OK] Database cleaned: 0 Lost, 0 Found, 0 Claims, 0 Rewards. Ready for deployment!")
 
     print("\n[SUCCESS] Production readiness verification passed 100%!")
 

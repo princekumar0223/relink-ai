@@ -90,6 +90,7 @@ async def report_found_item(
     primary_color: Optional[str] = Form(None),
     brand: Optional[str] = Form(None),
     contact_phone: Optional[str] = Form(None),
+    upi_id: Optional[str] = Form(None),
     images: Optional[List[UploadFile]] = File(None),
     image: Optional[UploadFile] = File(None),
     db: sqlite3.Connection = Depends(get_db)
@@ -121,13 +122,13 @@ async def report_found_item(
     INSERT INTO items (
         type, title, description, category, primary_color, brand,
         latitude, longitude, location_name, date_occurred,
-        contact_name, contact_email, contact_phone, custody_location,
+        contact_name, contact_email, contact_phone, custody_location, upi_id,
         image_path, image_hash, status
-    ) VALUES ('found', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')
+    ) VALUES ('found', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')
     """, (
         title, description, category, primary_color, brand,
         latitude, longitude, location_name, date_occurred,
-        contact_name, contact_email, contact_phone, custody_location,
+        contact_name, contact_email, contact_phone, custody_location, upi_id,
         image_path, image_hash
     ))
     db.commit()

@@ -134,5 +134,23 @@ export const API = {
   async getClaimsForMatch(matchId) {
     const res = await fetch(`${API_BASE}/api/claims/match/${matchId}`);
     return res.json();
+  },
+
+  async sendReward(claimId, rewardData) {
+    const res = await fetch(`${API_BASE}/api/claims/${claimId}/reward`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(rewardData)
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || "Failed to record reward");
+    }
+    return res.json();
+  },
+
+  async getNotifications() {
+    const res = await fetch(`${API_BASE}/api/claims/notifications/all`);
+    return res.json();
   }
 };
