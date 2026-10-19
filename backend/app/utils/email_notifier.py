@@ -8,30 +8,68 @@ from typing import Dict, Any, Optional
 from ..config import settings
 
 def _send_smtp_email(to_email: str, subject: str, text_content: str, html_content: str) -> bool:
-    """Send an actual email via SMTP if credentials are configured."""
-    if not (settings.SMTP_HOST and settings.SMTP_USER and settings.SMTP_PASSWORD):
+    """Send an actual email via SMTP (Port 587 TLS or Port 465 SSL) if credentials exist."""
+    user = (settings.SMTP_USER or "").strip()
+    password = (settings.SMTP_PASSWORD or "").strip()
+    
+    # Also check if saved in database app_settings
+    if not (user and password):
+        try:
+            conn = sqlite3.connect(str(settings.DATABASE_PATH))
+            conn.row_factory = sqlite3.Row
+            cur = conn.cursor()
+            cur.execute("SELECT key, value FROM app_settings WHERE key IN ('smtp_user', 'smtp_password', 'smtp_host', 'smtp_port')")
+            rows = dict(cur.fetchall())
+            if rows.get("smtp_user") and rows.get("smtp_password"):
+                user = rows["smtp_user"].strip()
+                password = rows["smtp_password"].strip()
+            conn.close()
+        except Exception:
+            pass
+
+    if not (user and password):
+        print(f"\n[EMAIL NOTICE] Real email to {to_email} requires SMTP_USER and SMTP_PASSWORD.")
+        print(f"               Add them to Render Environment Variables or .env to dispatch live emails.\n")
         return False
         
+    host = settings.SMTP_HOST.strip() if settings.SMTP_HOST else ("smtp.gmail.com" if "@gmail" in user.lower() else "smtp.gmail.com")
+    port = settings.SMTP_PORT or 587
+    sender_name = "Relink AI Lost & Found"
+    sender_header = f"{sender_name} <{user}>"
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = sender_header
+    msg["To"] = to_email
+    msg["Reply-To"] = user
+    
+    part1 = MIMEText(text_content, "plain", "utf-8")
+    part2 = MIMEText(html_content, "html", "utf-8")
+    msg.attach(part1)
+    msg.attach(part2)
+    
+    # Attempt 1: Port 587 with STARTTLS
     try:
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = subject
-        msg["From"] = settings.SMTP_FROM
-        msg["To"] = to_email
-        
-        part1 = MIMEText(text_content, "plain", "utf-8")
-        part2 = MIMEText(html_content, "html", "utf-8")
-        msg.attach(part1)
-        msg.attach(part2)
-        
-        with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=10) as server:
+        with smtplib.SMTP(host, port, timeout=12) as server:
             server.ehlo()
             server.starttls()
             server.ehlo()
-            server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
-            server.sendmail(settings.SMTP_FROM, [to_email], msg.as_string())
+            server.login(user, password)
+            server.sendmail(user, [to_email], msg.as_string())
+        print(f"\n[SUCCESS] 🚀 Live email successfully delivered to {to_email} via SMTP ({host}:{port})!\n")
         return True
-    except Exception as e:
-        print(f"[WARN] SMTP delivery failed to {to_email}: {e}")
+    except Exception as e587:
+        print(f"[WARN] Port {port} STARTTLS attempt failed: {e587}. Trying direct SSL on port 465...")
+
+    # Attempt 2: Port 465 with SSL (works on cloud providers that block port 587)
+    try:
+        with smtplib.SMTP_SSL(host, 465, timeout=12) as server:
+            server.login(user, password)
+            server.sendmail(user, [to_email], msg.as_string())
+        print(f"\n[SUCCESS] 🚀 Live email successfully delivered to {to_email} via SMTP_SSL ({host}:465)!\n")
+        return True
+    except Exception as e465:
+        print(f"[ERROR] Live email delivery failed to {to_email}: {e465}\n")
         return False
 
 def send_match_notification(
@@ -143,26 +181,21 @@ Multimodal Lost & Found Intelligence System
 </html>
 """
 
-    # Check if SMTP is available
-    delivered_via_smtp = False
-    if settings.SMTP_HOST and settings.SMTP_USER and settings.SMTP_PASSWORD:
-        # Deliver in background thread so HTTP response is fast
-        threading.Thread(
-            target=_send_smtp_email,
-            args=(recipient_email, subject, text_content, html_content),
-            daemon=True
-        ).start()
-        delivered_via_smtp = True
-        status_text = "sent"
-    else:
-        status_text = "logged"
+    # Deliver directly via SMTP in background thread
+    threading.Thread(
+        target=_send_smtp_email,
+        args=(recipient_email, subject, text_content, html_content),
+        daemon=True
+    ).start()
 
     print("\n" + "=" * 65)
     print(f"📧 [RELINK AI EMAIL ALERT TRIGGERED] (Match: {score_pct}% >= 70%)")
     print(f"   To      : {recipient_email} ({recipient_name})")
     print(f"   Subject : {subject}")
-    print(f"   Status  : {'Sent via SMTP Server' if delivered_via_smtp else 'Logged & Recorded (Configure SMTP in .env for inbox delivery)'}")
+    print(f"   Action  : Direct SMTP Email Delivery Dispatched")
     print("=" * 65 + "\n")
+
+    status_text = "dispatched"
 
     # Store in database notifications table
     if conn:
@@ -192,5 +225,5 @@ Multimodal Lost & Found Intelligence System
         "recipient_email": recipient_email,
         "score_pct": score_pct,
         "subject": subject,
-        "delivery_mode": "smtp" if delivered_via_smtp else "logged"
+        "delivery_mode": "smtp"
     }

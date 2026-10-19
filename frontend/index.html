@@ -97,18 +97,10 @@
       </button>
     </div>
 
-    <div class="flex items-center gap-2">
-      <button id="btn-notifications" class="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 rounded-xl text-xs font-medium flex items-center gap-1.5 transition-all relative" title="View Automated >=70% Match Email Alerts">
-        <span>🔔</span>
-        <span>Email Alerts</span>
-        <span id="nav-notifications-badge" class="px-1.5 py-0.2 rounded-full bg-purple-600 text-[10px] font-bold text-white">0</span>
-      </button>
-
-      <button id="btn-recalculate" class="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white border border-slate-800 rounded-xl text-xs font-medium flex items-center gap-1.5 transition-all" title="Refresh match analysis">
-        <span>🔄</span>
-        <span>Sync Matches</span>
-      </button>
-    </div>
+    <button id="btn-recalculate" class="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white border border-slate-800 rounded-xl text-xs font-medium flex items-center gap-1.5 transition-all" title="Refresh match analysis">
+      <span>🔄</span>
+      <span>Sync Matches</span>
+    </button>
   </nav>
 
   <!-- Main Content Container -->
@@ -758,26 +750,6 @@
           </button>
         </div>
       </form>
-    </div>
-  </dialog>
-
-  <!-- MODAL: Email Notifications History (>= 70% Match Alerts) -->
-  <dialog id="notifications-modal" class="backdrop:bg-black/80 backdrop:backdrop-blur-sm bg-transparent p-0 max-w-2xl w-full rounded-2xl text-slate-100 overscroll-contain">
-    <div class="glass-panel-elevated rounded-2xl p-6 border border-purple-500/40 shadow-2xl">
-      <div class="flex items-center justify-between pb-3 border-b border-slate-800 mb-4">
-        <div class="flex items-center gap-2.5">
-          <span class="text-2xl">🔔</span>
-          <div>
-            <h3 class="font-bold text-base text-white">Automatic AI Match Email Alerts (>= 70%)</h3>
-            <p class="text-[11px] text-purple-300">Automated notifications dispatched to lost item owners</p>
-          </div>
-        </div>
-        <button id="btn-close-notifications" class="w-7 h-7 rounded-full bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-slate-400 hover:text-white">✕</button>
-      </div>
-
-      <div id="notifications-container" class="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
-        <!-- Dynamically rendered notification cards -->
-      </div>
     </div>
   </dialog>
 

@@ -37,7 +37,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   setupGeolocationDetectors();
   setupApiKeyManager();
   setupRewardManager();
-  setupNotificationsManager();
   
   await refreshAll();
   
@@ -73,11 +72,6 @@ function updateStatsUI(stats) {
   const rewardEl = document.getElementById("stat-rewards");
   if (rewardEl) {
     rewardEl.textContent = `₹${stats.total_reward_amount || 0}`;
-  }
-
-  const notifBadge = document.getElementById("nav-notifications-badge");
-  if (notifBadge) {
-    notifBadge.textContent = stats.total_notifications || 0;
   }
 
   // Pending claims badge
@@ -1011,63 +1005,6 @@ function setupRewardManager() {
       } finally {
         submitBtn.disabled = false;
         submitBtn.innerHTML = `<span>✓ Record & Send Reward</span>`;
-      }
-    });
-  }
-}
-
-function setupNotificationsManager() {
-  const notifBtn = document.getElementById("btn-notifications");
-  const modal = document.getElementById("notifications-modal");
-  const closeBtn = document.getElementById("btn-close-notifications");
-  const container = document.getElementById("notifications-container");
-
-  if (closeBtn) closeBtn.addEventListener("click", () => modal.close());
-
-  if (notifBtn) {
-    notifBtn.addEventListener("click", async () => {
-      modal.showModal();
-      container.innerHTML = `<div class="p-4 text-center text-xs text-slate-400">Loading automated alerts...</div>`;
-      try {
-        const list = await API.getNotifications();
-        container.innerHTML = "";
-        if (!list || list.length === 0) {
-          container.innerHTML = `
-            <div class="p-8 text-center bg-slate-900/40 rounded-xl border border-slate-800 text-xs text-slate-400">
-              <span class="text-3xl block mb-2">🔕</span>
-              <span class="font-semibold text-slate-300 block mb-1">No automated email alerts sent yet.</span>
-              <span>When an AI match reaches or exceeds 70% confidence, an email notification is automatically recorded and sent to the owner.</span>
-            </div>
-          `;
-          return;
-        }
-
-        list.forEach(n => {
-          const card = document.createElement("div");
-          const scorePct = Math.round((n.match_score || 0) * 100);
-          card.className = "p-4 bg-slate-900/80 rounded-xl border border-purple-500/20 hover:border-purple-500/40 transition-all text-xs space-y-2";
-          card.innerHTML = `
-            <div class="flex items-center justify-between">
-              <span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-purple-600/30 text-purple-300 border border-purple-500/40 flex items-center gap-1.5">
-                <span class="w-2 h-2 rounded-full bg-purple-400 animate-ping"></span>
-                ${scorePct}% Match Confidence
-              </span>
-              <span class="text-[10px] text-slate-400 font-mono">${n.created_at}</span>
-            </div>
-            <div class="font-bold text-white text-sm">${n.subject}</div>
-            <div class="text-slate-300 text-[11px] flex flex-wrap items-center gap-x-4 gap-y-1">
-              <span>📧 <strong>To:</strong> ${n.recipient_email} (${n.recipient_name || 'Owner'})</span>
-              <span>📡 <strong>Delivery:</strong> <span class="${n.status === 'sent' ? 'text-emerald-400 font-bold' : 'text-blue-400 font-bold'}">${n.status === 'sent' ? '✓ SMTP Sent' : '✓ Logged & Ready'}</span></span>
-            </div>
-            <details class="cursor-pointer text-[11px] text-slate-400 pt-1 border-t border-slate-800">
-              <summary class="hover:text-purple-300 transition-colors">View Email Content Preview</summary>
-              <pre class="mt-2 p-2.5 bg-slate-950 rounded-lg text-[10px] text-slate-300 whitespace-pre-wrap font-mono">${n.body}</pre>
-            </details>
-          `;
-          container.appendChild(card);
-        });
-      } catch (err) {
-        container.innerHTML = `<div class="p-4 text-center text-xs text-rose-400">Failed to load notifications: ${err.message}</div>`;
       }
     });
   }
