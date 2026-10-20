@@ -783,7 +783,7 @@ function setupForms() {
       });
 
       const res = await API.createLostItem(formData);
-      UI.showToast(`Lost item registered! Identified ${res.matches_found} candidate matches!`, "success");
+      UI.showToast(res.message || "Lost item registered successfully!", "success");
       
       // Save to localStorage for persistent self-healing
       saveUserReportToStorage({
@@ -807,6 +807,11 @@ function setupForms() {
       document.getElementById("lost-images-gallery").innerHTML = "";
       await refreshAll();
       switchTab("matches");
+      // Background AI matcher auto-refresh
+      setTimeout(async () => {
+        await loadMatches();
+        await updateStats();
+      }, 2500);
     } catch (err) {
       UI.showToast(err.message, "error");
     } finally {
@@ -833,7 +838,7 @@ function setupForms() {
       });
 
       const res = await API.createFoundItem(formData);
-      UI.showToast(`Found item recorded! Connected with ${res.matches_found} potential owners!`, "success");
+      UI.showToast(res.message || "Found item registered successfully!", "success");
 
       // Save to localStorage for persistent self-healing
       saveUserReportToStorage({
@@ -858,6 +863,11 @@ function setupForms() {
       document.getElementById("found-images-gallery").innerHTML = "";
       await refreshAll();
       switchTab("matches");
+      // Background AI matcher auto-refresh
+      setTimeout(async () => {
+        await loadMatches();
+        await updateStats();
+      }, 2500);
     } catch (err) {
       UI.showToast(err.message, "error");
     } finally {
@@ -1187,3 +1197,8 @@ function setupRewardManager() {
     });
   }
 }
+
+// Keep-Alive Heartbeat (Pings health check every 4 minutes while tab is open to keep server awake)
+setInterval(() => {
+  API.getHealth().catch(() => {});
+}, 4 * 60 * 1000);

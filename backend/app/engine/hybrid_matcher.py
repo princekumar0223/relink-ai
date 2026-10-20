@@ -19,34 +19,9 @@ class HybridMatcher:
         api_key: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Calculates all 3 sub-scores and the composite score.
+        Calculates all 3 sub-scores and the composite score with fast heuristic pre-filtering.
         """
-        # 1. Visual Match
-        has_v1 = bool(lost_item.get("image_path"))
-        has_v2 = bool(found_item.get("image_path"))
-        
-        v_score, v_reason = VisualMatcher.match(
-            lost_item.get("image_path"), lost_item.get("image_hash"),
-            found_item.get("image_path"), found_item.get("image_hash"),
-            api_key=api_key
-        )
-        
-        # 2. Text / Semantic Match
-        t_score, t_reason = TextMatcher.match(
-            title1=lost_item.get("title", ""),
-            desc1=lost_item.get("description", ""),
-            cat1=lost_item.get("category", ""),
-            brand1=lost_item.get("brand"),
-            color1=lost_item.get("primary_color"),
-            title2=found_item.get("title", ""),
-            desc2=found_item.get("description", ""),
-            cat2=found_item.get("category", ""),
-            brand2=found_item.get("brand"),
-            color2=found_item.get("primary_color"),
-            api_key=api_key
-        )
-        
-        # 3. Geospatial Match
+        # 1. Geospatial Match (Instant 0ms calculation)
         g_score, dist_m, g_reason = GeoMatcher.match(
             lat1=float(lost_item["latitude"]),
             lon1=float(lost_item["longitude"]),
@@ -55,7 +30,48 @@ class HybridMatcher:
             lon2=float(found_item["longitude"]),
             loc_name2=found_item.get("location_name", "")
         )
-        
+
+        has_v1 = bool(lost_item.get("image_path"))
+        has_v2 = bool(found_item.get("image_path"))
+
+        cat1 = (lost_item.get("category") or "").strip().lower()
+        cat2 = (found_item.get("category") or "").strip().lower()
+        cat_compat_score = TextMatcher._category_score(cat1, cat2)
+
+        tokens1 = TextMatcher._clean_tokens((lost_item.get("title") or "") + " " + (lost_item.get("description") or ""))
+        tokens2 = TextMatcher._clean_tokens((found_item.get("title") or "") + " " + (found_item.get("description") or ""))
+        shared_tokens = tokens1.intersection(tokens2)
+
+        # Fast heuristic rejection: if categories are completely unrelated and no words overlap,
+        # avoid redundant Gemini API network roundtrips to keep execution ultra-fast!
+        if cat_compat_score <= 0.15 and not shared_tokens:
+            t_score = 0.05
+            t_reason = f"Distinct categories ({cat1} vs {cat2}) with no matching descriptor keywords."
+            v_score = 0.0
+            v_reason = "Visual comparison bypassed for dissimilar categories."
+        else:
+            # 2. Text / Semantic Match
+            t_score, t_reason = TextMatcher.match(
+                title1=lost_item.get("title", ""),
+                desc1=lost_item.get("description", ""),
+                cat1=lost_item.get("category", ""),
+                brand1=lost_item.get("brand"),
+                color1=lost_item.get("primary_color"),
+                title2=found_item.get("title", ""),
+                desc2=found_item.get("description", ""),
+                cat2=found_item.get("category", ""),
+                brand2=found_item.get("brand"),
+                color2=found_item.get("primary_color"),
+                api_key=api_key
+            )
+
+            # 3. Visual Match
+            v_score, v_reason = VisualMatcher.match(
+                lost_item.get("image_path"), lost_item.get("image_hash"),
+                found_item.get("image_path"), found_item.get("image_hash"),
+                api_key=api_key
+            )
+
         # 4. Weighted Composite Score
         if not has_v1 or not has_v2:
             # Rebalance weights if images are missing
@@ -67,7 +83,7 @@ class HybridMatcher:
             w_t = settings.WEIGHT_TEXT
             w_g = settings.WEIGHT_GEO
             composite = (v_score * w_v) + (t_score * w_t) + (g_score * w_g)
-            
+
         composite = round(max(0.0, min(1.0, composite)), 4)
         
         # 5. Synthesize Unified AI Reasoning Summary

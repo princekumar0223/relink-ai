@@ -53,12 +53,73 @@ def get_smtp_credentials() -> Tuple[str, str]:
 
 def _send_smtp_email(to_email: str, subject: str, text_content: str, html_content: str) -> Tuple[bool, str]:
     """
-    Send an email via HTTP APIs (Resend, Brevo) or SMTP (Port 587 TLS or Port 465 SSL).
+    Send an email via Google Apps Script Webhook, Brevo, Resend, or SMTP.
     Returns (success: bool, status_message: str).
     """
     errors = []
+    user, password = get_smtp_credentials()
 
-    # Method 1: Resend HTTP API (Port 443 HTTPS - Never blocked by Render Free Tier!)
+    # Method 1: Google Apps Script Webhook (Direct Gmail relay to ANY recipient, 100% free, no domain needed)
+    gmail_webhook = (os.getenv("GMAIL_WEBHOOK_URL") or "").strip()
+    if gmail_webhook:
+        try:
+            resp = requests.post(
+                gmail_webhook,
+                json={
+                    "to": to_email,
+                    "subject": subject,
+                    "text": text_content,
+                    "html": html_content
+                },
+                timeout=12
+            )
+            if resp.status_code == 200:
+                res_json = {}
+                try:
+                    res_json = resp.json()
+                except Exception:
+                    pass
+                if res_json.get("status") == "success" or "success" in resp.text.lower():
+                    msg = f"Delivered via Google Apps Script directly from Gmail to {to_email}!"
+                    print(f"\n[SUCCESS] 🚀 {msg}\n")
+                    return True, msg
+                else:
+                    errors.append(f"Gmail Webhook response: {resp.text}")
+            else:
+                errors.append(f"Gmail Webhook HTTP error ({resp.status_code}): {resp.text}")
+        except Exception as e_webhook:
+            errors.append(f"Gmail Webhook request failed: {e_webhook}")
+
+    # Method 2: Brevo HTTP API (Port 443 HTTPS - Delivers to ANY email without domain verification!)
+    brevo_key = (os.getenv("BREVO_API_KEY") or "").strip()
+    if brevo_key:
+        try:
+            sender_email = (os.getenv("BREVO_SENDER_EMAIL") or user or "ggi2024.5040@ggi.ac.in").strip()
+            resp = requests.post(
+                "https://api.brevo.com/v3/smtp/email",
+                headers={
+                    "api-key": brevo_key,
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "sender": {"name": "Relink AI", "email": sender_email},
+                    "to": [{"email": to_email}],
+                    "subject": subject,
+                    "htmlContent": html_content,
+                    "textContent": text_content
+                },
+                timeout=12
+            )
+            if resp.status_code in (200, 201):
+                msg = f"Delivered via Brevo HTTP API (Port 443 HTTPS) to {to_email}!"
+                print(f"\n[SUCCESS] 🚀 {msg}\n")
+                return True, msg
+            else:
+                errors.append(f"Brevo HTTP error ({resp.status_code}): {resp.text}")
+        except Exception as e_brevo:
+            errors.append(f"Brevo HTTP request failed: {e_brevo}")
+
+    # Method 3: Resend HTTP API (Port 443 HTTPS)
     resend_key = (os.getenv("RESEND_API_KEY") or "").strip()
     if resend_key:
         try:
@@ -87,40 +148,10 @@ def _send_smtp_email(to_email: str, subject: str, text_content: str, html_conten
         except Exception as e_resend:
             errors.append(f"Resend HTTP request failed: {e_resend}")
 
-    # Method 2: Brevo HTTP API (Port 443 HTTPS - Never blocked by Render Free Tier!)
-    brevo_key = (os.getenv("BREVO_API_KEY") or "").strip()
-    if brevo_key:
-        try:
-            resp = requests.post(
-                "https://api.brevo.com/v3/smtp/email",
-                headers={
-                    "api-key": brevo_key,
-                    "Content-Type": "application/json"
-                },
-                json={
-                    "sender": {"name": "Relink AI", "email": "notifications@relinkai.com"},
-                    "to": [{"email": to_email}],
-                    "subject": subject,
-                    "htmlContent": html_content,
-                    "textContent": text_content
-                },
-                timeout=12
-            )
-            if resp.status_code in (200, 201):
-                msg = f"Delivered via Brevo HTTP API (Port 443 HTTPS) to {to_email}!"
-                print(f"\n[SUCCESS] 🚀 {msg}\n")
-                return True, msg
-            else:
-                errors.append(f"Brevo HTTP error ({resp.status_code}): {resp.text}")
-        except Exception as e_brevo:
-            errors.append(f"Brevo HTTP request failed: {e_brevo}")
-
-    # Method 3: SMTP (Port 587 STARTTLS & Port 465 SSL)
-    user, password = get_smtp_credentials()
-
+    # Method 4: Standard SMTP (Port 587 STARTTLS & Port 465 SSL)
     if not (user and password):
-        if not (resend_key or brevo_key):
-            msg = f"[EMAIL NOTICE] Missing SMTP_USER / SMTP_PASSWORD (or RESEND_API_KEY). Live email to {to_email} not sent."
+        if not (gmail_webhook or brevo_key or resend_key):
+            msg = f"[EMAIL NOTICE] Missing GMAIL_WEBHOOK_URL, BREVO_API_KEY, RESEND_API_KEY, or SMTP credentials. Live email to {to_email} not sent."
             print(msg)
             return False, msg
 
@@ -177,6 +208,7 @@ def test_smtp_delivery(target_email: Optional[str] = None) -> Dict[str, Any]:
     Diagnostic tool to test live email delivery credentials and dispatch a test alert.
     """
     user, password = get_smtp_credentials()
+    gmail_webhook = (os.getenv("GMAIL_WEBHOOK_URL") or "").strip()
     resend_key = (os.getenv("RESEND_API_KEY") or "").strip()
     brevo_key = (os.getenv("BREVO_API_KEY") or "").strip()
 
@@ -200,12 +232,17 @@ def test_smtp_delivery(target_email: Optional[str] = None) -> Dict[str, Any]:
     # Diagnostic suggestion
     suggestion = None
     if not success:
-        if "Network is unreachable" in message:
+        if "only send testing emails to your own email address" in message:
+            suggestion = (
+                "Resend Testing Restriction: Resend free tier without a custom domain ONLY allows sending emails to the account owner (ggi2024.5040@ggi.ac.in). "
+                "To deliver to ALL other emails (e.g. pk6176895@gmail.com) without a domain, set GMAIL_WEBHOOK_URL (Google Apps Script Webhook - 100% free, sends from your Gmail) "
+                "or BREVO_API_KEY (Brevo free account - allows sending to ANY recipient email)."
+            )
+        elif "Network is unreachable" in message:
             suggestion = (
                 "Render Free tier blocks direct SMTP socket connections (ports 25, 465, 587) to prevent spam. "
-                "SOLUTION: Use Resend (Free 3,000 emails/month). Create a free account at https://resend.com, "
-                "copy your API key, and add RESEND_API_KEY in Render Environment Variables. "
-                "It sends instantly over HTTPS (Port 443) which Render never blocks!"
+                "SOLUTION: Set GMAIL_WEBHOOK_URL (via Google Apps Script, sends directly from your Gmail to any recipient) "
+                "or BREVO_API_KEY in Render Environment Variables. Both work over HTTPS (Port 443) which Render never blocks!"
             )
         elif "535" in message:
             suggestion = (
@@ -217,6 +254,7 @@ def test_smtp_delivery(target_email: Optional[str] = None) -> Dict[str, Any]:
         "success": success,
         "recipient": to_email,
         "smtp_user": user or "None",
+        "gmail_webhook_active": bool(gmail_webhook),
         "resend_active": bool(resend_key),
         "brevo_active": bool(brevo_key),
         "password_configured": bool(password),

@@ -1,11 +1,19 @@
 from typing import Optional, List
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query, BackgroundTasks
 import sqlite3
-from ..database import get_db
+from ..database import get_db, db_context
 from ..utils.image_helpers import save_uploaded_image
 from ..engine.hybrid_matcher import HybridMatcher
 
 router = APIRouter(prefix="/api/items", tags=["items"])
+
+def _async_match_item(item_id: int):
+    """Run multimodal AI matching & automated email dispatch in background thread."""
+    try:
+        with db_context() as conn:
+            HybridMatcher.match_item_against_all(item_id, conn)
+    except Exception as e:
+        print(f"[WARN] Background matching error for item #{item_id}: {e}")
 
 @router.post("/lost")
 async def report_lost_item(
@@ -23,6 +31,7 @@ async def report_lost_item(
     contact_phone: Optional[str] = Form(None),
     images: Optional[List[UploadFile]] = File(None),
     image: Optional[UploadFile] = File(None),
+    background_tasks: BackgroundTasks = None,
     db: sqlite3.Connection = Depends(get_db)
 ):
     all_files = []
@@ -64,15 +73,19 @@ async def report_lost_item(
     db.commit()
     item_id = cursor.lastrowid
     
-    # Run immediate tri-factor matching against found items
-    new_matches = HybridMatcher.match_item_against_all(item_id, db)
+    # Run tri-factor matching & email dispatch asynchronously in background
+    if background_tasks:
+        background_tasks.add_task(_async_match_item, item_id)
+    else:
+        _async_match_item(item_id)
     
     cursor.execute("SELECT * FROM items WHERE id = ?", (item_id,))
     item_data = dict(cursor.fetchone())
     return {
+        "status": "success",
         "item": item_data,
-        "matches_found": len(new_matches),
-        "top_matches": sorted(new_matches, key=lambda x: x["composite_score"], reverse=True)[:3]
+        "matches_found": 0,
+        "message": "Lost item report registered instantly! Multimodal AI is calculating matches in the background."
     }
 
 @router.post("/found")
@@ -93,6 +106,7 @@ async def report_found_item(
     upi_id: Optional[str] = Form(None),
     images: Optional[List[UploadFile]] = File(None),
     image: Optional[UploadFile] = File(None),
+    background_tasks: BackgroundTasks = None,
     db: sqlite3.Connection = Depends(get_db)
 ):
     all_files = []
@@ -134,15 +148,19 @@ async def report_found_item(
     db.commit()
     item_id = cursor.lastrowid
     
-    # Run immediate tri-factor matching against lost items
-    new_matches = HybridMatcher.match_item_against_all(item_id, db)
+    # Run tri-factor matching & email dispatch asynchronously in background
+    if background_tasks:
+        background_tasks.add_task(_async_match_item, item_id)
+    else:
+        _async_match_item(item_id)
     
     cursor.execute("SELECT * FROM items WHERE id = ?", (item_id,))
     item_data = dict(cursor.fetchone())
     return {
+        "status": "success",
         "item": item_data,
-        "matches_found": len(new_matches),
-        "top_matches": sorted(new_matches, key=lambda x: x["composite_score"], reverse=True)[:3]
+        "matches_found": 0,
+        "message": "Found item report registered instantly! Multimodal AI is calculating matches in the background."
     }
 
 @router.get("")
