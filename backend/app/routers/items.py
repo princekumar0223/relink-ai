@@ -209,6 +209,63 @@ def get_item(item_id: int, db: sqlite3.Connection = Depends(get_db)):
     matches = [dict(r) for r in cursor.fetchall()]
     return {"item": item, "matches": matches}
 
+@router.post("/sync")
+def sync_client_items(items_data: List[dict], db: sqlite3.Connection = Depends(get_db)):
+    """
+    Synchronizes client-side items back to the database in case of ephemeral storage restart.
+    Guarantees zero data loss on Render free tier restarts.
+    """
+    cursor = db.cursor()
+    restored_count = 0
+    for item in items_data:
+        title = item.get("title")
+        itype = item.get("type", "lost")
+        date_occ = item.get("date_occurred", "")
+        contact_email = item.get("contact_email", "")
+        if not title:
+            continue
+
+        # Check if item already exists
+        cursor.execute(
+            "SELECT id FROM items WHERE title = ? AND type = ? AND contact_email = ?",
+            (title, itype, contact_email)
+        )
+        if cursor.fetchone():
+            continue
+
+        cursor.execute("""
+        INSERT INTO items (
+            type, title, description, category, primary_color, brand,
+            latitude, longitude, location_name, date_occurred,
+            contact_name, contact_email, contact_phone, custody_location,
+            upi_id, image_path, status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')
+        """, (
+            itype,
+            title,
+            item.get("description", ""),
+            item.get("category", "Other"),
+            item.get("primary_color"),
+            item.get("brand"),
+            float(item.get("latitude", 28.6139)),
+            float(item.get("longitude", 77.2090)),
+            item.get("location_name", "Campus"),
+            date_occ,
+            item.get("contact_name", "Anonymous"),
+            contact_email,
+            item.get("contact_phone"),
+            item.get("custody_location"),
+            item.get("upi_id"),
+            item.get("image_path")
+        ))
+        restored_count += 1
+
+    db.commit()
+    if restored_count > 0:
+        HybridMatcher.recalculate_all(db)
+
+    return {"status": "success", "restored": restored_count}
+
 @router.delete("/{item_id}")
 def delete_item(item_id: int, db: sqlite3.Connection = Depends(get_db)):
     cursor = db.cursor()

@@ -155,7 +155,6 @@ class HybridMatcher:
                         try:
                             from ..utils.email_notifier import send_match_notification
                             send_match_notification(lost_i, found_i, result, conn)
-                            cursor.execute("UPDATE matches SET email_notified = 1 WHERE id = ?", (m_id,))
                         except Exception as e:
                             print(f"[WARN] Failed to send email alert: {e}")
                 
@@ -210,7 +209,6 @@ class HybridMatcher:
                             try:
                                 from ..utils.email_notifier import send_match_notification
                                 send_match_notification(l_item, f_item, res, conn)
-                                cursor.execute("UPDATE matches SET email_notified = 1 WHERE id = ?", (m_id,))
                             except Exception as e:
                                 print(f"[WARN] Failed to send email alert during recalculation: {e}")
                                 

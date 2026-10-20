@@ -134,8 +134,82 @@ async function loadMatches() {
   }
 }
 
+// Local Persistence & Self-Healing Sync
+const STORAGE_CACHED_ITEMS = "relink_cached_items_v2";
+const STORAGE_USER_REPORTS = "relink_my_submitted_reports_v2";
+
+function saveUserReportToStorage(itemData) {
+  try {
+    const list = JSON.parse(localStorage.getItem(STORAGE_USER_REPORTS) || "[]");
+    const exists = list.some(x => x.title === itemData.title && x.type === itemData.type && x.date_occurred === itemData.date_occurred);
+    if (!exists) {
+      list.unshift(itemData);
+      localStorage.setItem(STORAGE_USER_REPORTS, JSON.stringify(list.slice(0, 50)));
+    }
+  } catch (e) {
+    console.warn("Storage write failed", e);
+  }
+}
+
+function getUserReportsFromStorage() {
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_USER_REPORTS) || "[]");
+  } catch (e) {
+    return [];
+  }
+}
+
+function cacheItemsLocally(items) {
+  try {
+    if (Array.isArray(items) && items.length > 0) {
+      localStorage.setItem(STORAGE_CACHED_ITEMS, JSON.stringify(items));
+    }
+  } catch (e) {
+    console.warn("Storage write failed", e);
+  }
+}
+
+function getCachedItemsLocally() {
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_CACHED_ITEMS) || "[]");
+  } catch (e) {
+    return [];
+  }
+}
+
+function renderItemsGrid(container, items) {
+  container.innerHTML = "";
+  if (!items || items.length === 0) {
+    container.innerHTML = `
+      <div class="col-span-full py-16 text-center glass-panel rounded-2xl p-8 border border-slate-800">
+        <div class="w-12 h-12 mx-auto mb-3 rounded-xl bg-slate-900 flex items-center justify-center text-2xl">
+          📦
+        </div>
+        <p class="text-sm font-semibold text-slate-300 mb-1">No items registered yet</p>
+        <p class="text-xs text-slate-500">Items submitted will appear here for easy browsing and searching.</p>
+      </div>
+    `;
+  } else {
+    items.forEach(item => {
+      const card = UI.renderItemCard(item, (selected) => {
+        UI.showToast(`Selected "${selected.title}" (${selected.type})`, "info");
+      });
+      container.appendChild(card);
+    });
+  }
+}
+
 async function loadItems() {
   const container = document.getElementById("items-grid");
+
+  // 1. Instant Cache Render: If grid is currently empty, load instantly from localStorage
+  if (container.children.length === 0) {
+    const cached = getCachedItemsLocally();
+    if (cached.length > 0) {
+      renderItemsGrid(container, cached);
+    }
+  }
+
   try {
     const categoryFilter = document.getElementById("filter-category").value;
     const typeFilter = document.getElementById("filter-type").value;
@@ -146,29 +220,41 @@ async function loadItems() {
       type: typeFilter,
       search: searchFilter
     });
-    state.items = items;
-    container.innerHTML = "";
 
-    if (items.length === 0) {
-      container.innerHTML = `
-        <div class="col-span-full py-16 text-center glass-panel rounded-2xl p-8 border border-slate-800">
-          <div class="w-12 h-12 mx-auto mb-3 rounded-xl bg-slate-900 flex items-center justify-center text-2xl">
-            📦
-          </div>
-          <p class="text-sm font-semibold text-slate-300 mb-1">No items registered yet</p>
-          <p class="text-xs text-slate-500">Items submitted will appear here for easy browsing and searching.</p>
-        </div>
-      `;
-    } else {
-      items.forEach(item => {
-        const card = UI.renderItemCard(item, (selected) => {
-          UI.showToast(`Selected "${selected.title}" (${selected.type})`, "info");
-        });
-        container.appendChild(card);
-      });
+    // Check if server database reset to 0 while user has saved reports
+    if ((!items || items.length === 0) && (!categoryFilter || categoryFilter === 'all') && (!typeFilter || typeFilter === 'all') && !searchFilter) {
+      const savedReports = getUserReportsFromStorage();
+      if (savedReports.length > 0) {
+        console.log("Restoring saved user reports to server after container restart...");
+        try {
+          const syncRes = await API.syncItems(savedReports);
+          if (syncRes && syncRes.restored > 0) {
+            UI.showToast(`🔄 Restored ${syncRes.restored} previously saved items to server!`, "info");
+            const freshItems = await API.getItems();
+            state.items = freshItems;
+            cacheItemsLocally(freshItems);
+            renderItemsGrid(container, freshItems);
+            return;
+          }
+        } catch (syncErr) {
+          console.warn("Auto-sync failed:", syncErr);
+        }
+      }
     }
+
+    state.items = items;
+    if (items && items.length > 0) {
+      cacheItemsLocally(items);
+    }
+    renderItemsGrid(container, items);
+
   } catch (err) {
-    console.error("Failed to load items", err);
+    console.error("Failed to load items from server", err);
+    const cached = getCachedItemsLocally();
+    if (cached.length > 0 && container.children.length === 0) {
+      renderItemsGrid(container, cached);
+      UI.showToast("Server waking up... displaying saved items", "info");
+    }
   }
 }
 
@@ -698,6 +784,24 @@ function setupForms() {
 
       const res = await API.createLostItem(formData);
       UI.showToast(`Lost item registered! Identified ${res.matches_found} candidate matches!`, "success");
+      
+      // Save to localStorage for persistent self-healing
+      saveUserReportToStorage({
+        type: "lost",
+        title: formData.get("title"),
+        description: formData.get("description"),
+        category: formData.get("category"),
+        primary_color: formData.get("primary_color"),
+        brand: formData.get("brand"),
+        latitude: parseFloat(formData.get("latitude")),
+        longitude: parseFloat(formData.get("longitude")),
+        location_name: formData.get("location_name"),
+        date_occurred: formData.get("date_occurred"),
+        contact_name: formData.get("contact_name"),
+        contact_email: formData.get("contact_email"),
+        contact_phone: formData.get("contact_phone")
+      });
+
       lostForm.reset();
       state.lostFiles = [];
       document.getElementById("lost-images-gallery").innerHTML = "";
@@ -730,6 +834,25 @@ function setupForms() {
 
       const res = await API.createFoundItem(formData);
       UI.showToast(`Found item recorded! Connected with ${res.matches_found} potential owners!`, "success");
+
+      // Save to localStorage for persistent self-healing
+      saveUserReportToStorage({
+        type: "found",
+        title: formData.get("title"),
+        description: formData.get("description"),
+        category: formData.get("category"),
+        primary_color: formData.get("primary_color"),
+        latitude: parseFloat(formData.get("latitude")),
+        longitude: parseFloat(formData.get("longitude")),
+        location_name: formData.get("location_name"),
+        date_occurred: formData.get("date_occurred"),
+        contact_name: formData.get("contact_name"),
+        contact_email: formData.get("contact_email"),
+        contact_phone: formData.get("contact_phone"),
+        custody_location: formData.get("custody_location"),
+        upi_id: formData.get("upi_id")
+      });
+
       foundForm.reset();
       state.foundFiles = [];
       document.getElementById("found-images-gallery").innerHTML = "";
@@ -904,33 +1027,90 @@ function debounce(func, wait) {
   };
 }
 
+// Active Reward Claim State
+let currentRewardClaim = null;
+
+function renderRewardQR() {
+  if (!currentRewardClaim) return;
+  const founderName = currentRewardClaim.founder_name || "Founder";
+  const amountInput = document.getElementById("reward-amount");
+  const amount = (amountInput ? amountInput.value : "100") || "100";
+
+  const manualInput = document.getElementById("reward-manual-upi-input");
+  let upiId = (currentRewardClaim.founder_upi || "").trim();
+  if (!upiId && manualInput && manualInput.value.trim()) {
+    upiId = manualInput.value.trim();
+  }
+
+  const qrImg = document.getElementById("reward-qr-img");
+  const qrFallback = document.getElementById("reward-qr-fallback");
+  const mobileLink = document.getElementById("reward-mobile-direct-link");
+  const manualBox = document.getElementById("reward-manual-upi-box");
+  const amountDisplay = document.getElementById("reward-qr-amount-display");
+
+  if (amountDisplay) amountDisplay.textContent = amount;
+
+  if (upiId && upiId.length > 2) {
+    const upiUrl = `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(founderName)}&am=${amount}&cu=INR&tn=${encodeURIComponent('Relink AI - Reward for Found Item')}`;
+    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&margin=8&data=${encodeURIComponent(upiUrl)}`;
+
+    if (qrImg) {
+      qrImg.src = qrUrl;
+      qrImg.classList.remove("hidden");
+      qrImg.onclick = () => { window.location.href = upiUrl; };
+    }
+    if (qrFallback) qrFallback.classList.add("hidden");
+    if (mobileLink) {
+      mobileLink.href = upiUrl;
+      mobileLink.classList.remove("hidden");
+    }
+    if (manualBox) manualBox.classList.add("hidden");
+  } else {
+    if (qrImg) qrImg.classList.add("hidden");
+    if (qrFallback) qrFallback.classList.remove("hidden");
+    if (mobileLink) mobileLink.classList.add("hidden");
+    if (manualBox) manualBox.classList.remove("hidden");
+  }
+}
+
 // Open Reward Modal
 function openRewardModal(claim) {
   if (!claim) return;
   const modal = document.getElementById("reward-modal");
   if (!modal) return;
 
+  currentRewardClaim = claim;
   document.getElementById("reward-claim-id").value = claim.id;
   document.getElementById("reward-founder-name").textContent = claim.founder_name || "Campus Security / Founder";
   document.getElementById("reward-custody-location").textContent = claim.custody_location || "Security Office";
-  
+
   const upiId = claim.founder_upi || claim.founder_phone || "";
   const upiEl = document.getElementById("reward-founder-upi");
-  const upiBox = document.getElementById("reward-upi-box");
-  const upiBtn = document.getElementById("btn-pay-upi-app");
+  const manualInput = document.getElementById("reward-manual-upi-input");
+  if (manualInput) manualInput.value = upiId;
 
   if (upiId && upiId.trim()) {
     upiEl.textContent = upiId;
-    upiBox.classList.remove("hidden");
-    const amount = document.getElementById("reward-amount").value || "100";
-    const upiLink = `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(claim.founder_name || 'Founder')}&am=${amount}&tn=${encodeURIComponent('Relink AI - Reward for Found Item')}`;
-    upiBtn.href = upiLink;
-    upiBtn.classList.remove("hidden");
   } else {
-    upiEl.textContent = "Not specified (Direct Handover / Cash)";
-    upiBtn.classList.add("hidden");
+    upiEl.textContent = "Not specified yet";
   }
 
+  // Reset default amount to 100
+  const amountInput = document.getElementById("reward-amount");
+  if (amountInput) amountInput.value = "100";
+
+  // Highlight 100 preset button
+  document.querySelectorAll(".btn-preset-reward").forEach(b => {
+    if (b.dataset.amount === "100") {
+      b.classList.add("border-amber-500/60", "bg-amber-600/20", "text-amber-300");
+      b.classList.remove("border-slate-700", "bg-slate-900", "text-slate-200");
+    } else {
+      b.classList.remove("border-amber-500/60", "bg-amber-600/20", "text-amber-300");
+      b.classList.add("border-slate-700", "bg-slate-900", "text-slate-200");
+    }
+  });
+
+  renderRewardQR();
   modal.showModal();
 }
 
@@ -942,69 +1122,67 @@ function setupRewardManager() {
   // Preset buttons
   const presetBtns = document.querySelectorAll(".btn-preset-reward");
   const amountInput = document.getElementById("reward-amount");
-  const upiBtn = document.getElementById("btn-pay-upi-app");
+  const manualInput = document.getElementById("reward-manual-upi-input");
 
   presetBtns.forEach(btn => {
     btn.addEventListener("click", () => {
       const amt = btn.dataset.amount;
-      amountInput.value = amt;
+      if (amountInput) amountInput.value = amt;
       presetBtns.forEach(b => {
         b.classList.remove("border-amber-500/60", "bg-amber-600/20", "text-amber-300");
         b.classList.add("border-slate-700", "bg-slate-900", "text-slate-200");
       });
       btn.classList.add("border-amber-500/60", "bg-amber-600/20", "text-amber-300");
       btn.classList.remove("border-slate-700", "bg-slate-900", "text-slate-200");
-
-      const upiText = document.getElementById("reward-founder-upi").textContent;
-      if (upiText && !upiText.includes("Not specified") && upiBtn) {
-        const name = document.getElementById("reward-founder-name").textContent;
-        upiBtn.href = `upi://pay?pa=${encodeURIComponent(upiText)}&pn=${encodeURIComponent(name)}&am=${amt}&tn=${encodeURIComponent('Relink AI - Reward for Found Item')}`;
-      }
+      renderRewardQR();
     });
   });
 
   if (amountInput) {
     amountInput.addEventListener("input", () => {
-      const amt = amountInput.value;
-      const upiText = document.getElementById("reward-founder-upi").textContent;
-      if (upiText && !upiText.includes("Not specified") && upiBtn) {
-        const name = document.getElementById("reward-founder-name").textContent;
-        upiBtn.href = `upi://pay?pa=${encodeURIComponent(upiText)}&pn=${encodeURIComponent(name)}&am=${amt}&tn=${encodeURIComponent('Relink AI - Reward for Found Item')}`;
-      }
+      renderRewardQR();
     });
   }
 
-  const form = document.getElementById("form-send-reward");
-  if (form) {
-    form.addEventListener("submit", async (e) => {
-      e.preventDefault();
+  if (manualInput) {
+    manualInput.addEventListener("input", () => {
+      renderRewardQR();
+    });
+  }
+
+  // Confirm Payment & Auto Redirect Button
+  const confirmPaidBtn = document.getElementById("btn-confirm-qr-paid");
+  if (confirmPaidBtn) {
+    confirmPaidBtn.addEventListener("click", async () => {
       const claimId = parseInt(document.getElementById("reward-claim-id").value);
       const amount = parseFloat(document.getElementById("reward-amount").value);
       const message = document.getElementById("reward-message").value;
-      const submitBtn = document.getElementById("btn-submit-reward");
+      const founderName = document.getElementById("reward-founder-name").textContent || "Founder";
 
       if (!amount || amount <= 0) {
         UI.showToast("Please enter a valid reward amount.", "warning");
         return;
       }
 
-      submitBtn.disabled = true;
-      submitBtn.textContent = "Processing Reward...";
+      confirmPaidBtn.disabled = true;
+      confirmPaidBtn.innerHTML = `<span>Recording Payment & Redirecting...</span>`;
 
       try {
         const res = await API.sendReward(claimId, {
           amount: amount,
           message: message,
-          payment_mode: "UPI / Direct"
+          payment_mode: "UPI QR Code"
         });
-        UI.showToast(res.message, "success");
+        UI.showToast(`🎉 Reward of ₹${amount} recorded for ${founderName}! Redirecting...`, "success");
         modal.close();
         await refreshAll();
+        // Automatically redirect / switch to Claims tab as requested
+        switchTab("claims");
       } catch (err) {
         UI.showToast("Reward recording failed: " + err.message, "error");
       } finally {
-        submitBtn.disabled = false;
-        submitBtn.innerHTML = `<span>✓ Record & Send Reward</span>`;
+        confirmPaidBtn.disabled = false;
+        confirmPaidBtn.innerHTML = `<span class="text-base">✓</span><span>I Have Paid via QR Code → Complete & Redirect</span>`;
       }
     });
   }

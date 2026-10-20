@@ -42,6 +42,38 @@ def update_gemini_key(api_key: str = Form(...), db: sqlite3.Connection = Depends
         raise HTTPException(status_code=400, detail=f"Failed to verify Gemini API key: {str(e)}")
 
 
+@router.get("/test-email")
+@router.post("/test-email")
+def test_email_endpoint(to: Optional[str] = None):
+    """
+    Test live SMTP email delivery directly and return diagnostics.
+    """
+    from ..utils.email_notifier import test_smtp_delivery
+    return test_smtp_delivery(target_email=to)
+
+@router.post("/smtp-config")
+def save_smtp_config(
+    smtp_user: str = Form(...),
+    smtp_password: str = Form(...),
+    db: sqlite3.Connection = Depends(get_db)
+):
+    """
+    Save SMTP credentials into application database settings as a convenient alternative to environment variables.
+    """
+    clean_user = smtp_user.strip()
+    clean_pass = smtp_password.replace(" ", "").strip()
+    cursor = db.cursor()
+    cursor.execute("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('smtp_user', ?)", (clean_user,))
+    cursor.execute("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('smtp_password', ?)", (clean_pass,))
+    db.commit()
+    from ..utils.email_notifier import test_smtp_delivery
+    test_result = test_smtp_delivery(clean_user)
+    return {
+        "status": "success",
+        "message": "SMTP credentials saved and tested!",
+        "diagnostics": test_result
+    }
+
 @router.post("/generate-claim-questions")
 def generate_claim_questions(
     lost_description: str = Form(...),

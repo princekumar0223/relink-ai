@@ -721,7 +721,7 @@
         </div>
       </div>
 
-      <form id="form-send-reward" class="space-y-4">
+      <div class="space-y-4">
         <div>
           <label class="block text-xs font-semibold text-slate-300 mb-1.5">Select Reward Amount (INR ₹) *</label>
           <div class="grid grid-cols-4 gap-2 mb-2">
@@ -736,20 +736,54 @@
           </div>
         </div>
 
+        <!-- Dynamic Live UPI QR Code Presentation -->
+        <div id="reward-qr-wrapper" class="p-4 bg-slate-900/90 rounded-2xl border border-amber-500/30 text-center space-y-2.5 shadow-inner">
+          <div class="flex items-center justify-between text-xs px-1">
+            <span class="font-bold text-slate-200 flex items-center gap-1.5">
+              <span>📷</span> Pay via QR Code
+            </span>
+            <span class="px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-bold text-[11px] border border-amber-500/30">
+              Amount: ₹<span id="reward-qr-amount-display">100</span>
+            </span>
+          </div>
+
+          <div class="relative inline-block mx-auto p-2.5 bg-white rounded-xl shadow-lg hover:shadow-amber-500/20 transition-all group">
+            <img id="reward-qr-img" src="" alt="UPI Payment QR Code" class="w-44 h-44 sm:w-48 sm:h-48 mx-auto object-contain cursor-pointer transition-transform group-hover:scale-[1.02]">
+            <div id="reward-qr-fallback" class="hidden w-44 h-44 flex flex-col items-center justify-center text-slate-700 p-2 text-center text-xs">
+              <span class="text-3xl mb-1">🏦</span>
+              <p class="font-bold">Enter Founder UPI</p>
+              <p class="text-[10px] text-slate-500">Provide UPI ID below to generate QR</p>
+            </div>
+          </div>
+
+          <p class="text-[11px] text-slate-300">
+            Scan with any UPI app: <strong class="text-white">Google Pay, PhonePe, Paytm, BHIM, Cred</strong>
+          </p>
+
+          <a id="reward-mobile-direct-link" href="#" class="inline-flex items-center gap-1.5 text-xs text-amber-400 hover:text-amber-300 font-medium py-1 px-3 rounded-lg bg-amber-950/40 border border-amber-800/50 hover:border-amber-700 transition-all">
+            <span>📱</span> Tap to Open UPI App Directly
+          </a>
+
+          <!-- Optional Founder UPI manual input if not set -->
+          <div id="reward-manual-upi-box" class="hidden text-left pt-2 border-t border-slate-800">
+            <label class="block text-[11px] text-slate-400 mb-1">Enter Founder UPI ID to update QR:</label>
+            <input type="text" id="reward-manual-upi-input" placeholder="e.g. founder@okaxis" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-amber-400">
+          </div>
+        </div>
+
         <div>
           <label class="block text-xs font-semibold text-slate-300 mb-1.5">Thank-You Note (Optional)</label>
           <textarea id="reward-message" rows="2" placeholder="Thank you so much for finding my belongings and safely handing it over!" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-amber-400"></textarea>
         </div>
 
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
-          <a id="btn-pay-upi-app" href="#" target="_blank" class="hidden py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-1.5 transition-all text-center">
-            <span>📱 Pay via UPI App</span>
-          </a>
-          <button type="submit" id="btn-submit-reward" class="w-full py-3 bg-gradient-to-r from-amber-600 to-yellow-600 hover:from-amber-500 hover:to-yellow-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-amber-600/30 flex items-center justify-center gap-1.5 transition-all">
-            <span>✓ Record & Send Reward</span>
+        <!-- Action Button: Paid via QR Code -> Auto Complete & Redirect -->
+        <div class="pt-2">
+          <button type="button" id="btn-confirm-qr-paid" class="w-full py-3.5 bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-500 hover:from-emerald-500 hover:to-teal-400 text-white font-bold text-xs sm:text-sm rounded-xl shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2 transition-all active:scale-[0.99]">
+            <span class="text-base">✓</span>
+            <span>I Have Paid via QR Code → Complete & Redirect</span>
           </button>
         </div>
-      </form>
+      </div>
     </div>
   </dialog>
 

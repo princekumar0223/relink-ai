@@ -152,5 +152,20 @@ export const API = {
   async getNotifications() {
     const res = await fetch(`${API_BASE}/api/claims/notifications/all`);
     return res.json();
+  },
+
+  async syncItems(itemsData) {
+    const res = await fetch(`${API_BASE}/api/items/sync`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(itemsData)
+    });
+    return res.json();
+  },
+
+  async testEmail(toEmail = null) {
+    const url = toEmail ? `${API_BASE}/api/ai/test-email?to=${encodeURIComponent(toEmail)}` : `${API_BASE}/api/ai/test-email`;
+    const res = await fetch(url);
+    return res.json();
   }
 };
