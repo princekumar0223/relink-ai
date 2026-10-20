@@ -2,6 +2,7 @@ import os
 import smtplib
 import sqlite3
 import threading
+import requests
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Dict, Any, Optional, Tuple
@@ -52,104 +53,175 @@ def get_smtp_credentials() -> Tuple[str, str]:
 
 def _send_smtp_email(to_email: str, subject: str, text_content: str, html_content: str) -> Tuple[bool, str]:
     """
-    Send an actual email via SMTP (Port 587 TLS or Port 465 SSL).
+    Send an email via HTTP APIs (Resend, Brevo) or SMTP (Port 587 TLS or Port 465 SSL).
     Returns (success: bool, status_message: str).
     """
+    errors = []
+
+    # Method 1: Resend HTTP API (Port 443 HTTPS - Never blocked by Render Free Tier!)
+    resend_key = (os.getenv("RESEND_API_KEY") or "").strip()
+    if resend_key:
+        try:
+            from_sender = os.getenv("RESEND_FROM", "Relink AI <onboarding@resend.dev>")
+            resp = requests.post(
+                "https://api.resend.com/emails",
+                headers={
+                    "Authorization": f"Bearer {resend_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "from": from_sender,
+                    "to": [to_email],
+                    "subject": subject,
+                    "html": html_content,
+                    "text": text_content
+                },
+                timeout=12
+            )
+            if resp.status_code in (200, 201):
+                msg = f"Delivered via Resend HTTP API (Port 443 HTTPS) to {to_email}!"
+                print(f"\n[SUCCESS] 🚀 {msg}\n")
+                return True, msg
+            else:
+                errors.append(f"Resend HTTP error ({resp.status_code}): {resp.text}")
+        except Exception as e_resend:
+            errors.append(f"Resend HTTP request failed: {e_resend}")
+
+    # Method 2: Brevo HTTP API (Port 443 HTTPS - Never blocked by Render Free Tier!)
+    brevo_key = (os.getenv("BREVO_API_KEY") or "").strip()
+    if brevo_key:
+        try:
+            resp = requests.post(
+                "https://api.brevo.com/v3/smtp/email",
+                headers={
+                    "api-key": brevo_key,
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "sender": {"name": "Relink AI", "email": "notifications@relinkai.com"},
+                    "to": [{"email": to_email}],
+                    "subject": subject,
+                    "htmlContent": html_content,
+                    "textContent": text_content
+                },
+                timeout=12
+            )
+            if resp.status_code in (200, 201):
+                msg = f"Delivered via Brevo HTTP API (Port 443 HTTPS) to {to_email}!"
+                print(f"\n[SUCCESS] 🚀 {msg}\n")
+                return True, msg
+            else:
+                errors.append(f"Brevo HTTP error ({resp.status_code}): {resp.text}")
+        except Exception as e_brevo:
+            errors.append(f"Brevo HTTP request failed: {e_brevo}")
+
+    # Method 3: SMTP (Port 587 STARTTLS & Port 465 SSL)
     user, password = get_smtp_credentials()
 
     if not (user and password):
-        msg = f"[EMAIL NOTICE] Missing SMTP_USER or SMTP_PASSWORD. Live email to {to_email} not sent."
-        print(msg)
-        return False, msg
+        if not (resend_key or brevo_key):
+            msg = f"[EMAIL NOTICE] Missing SMTP_USER / SMTP_PASSWORD (or RESEND_API_KEY). Live email to {to_email} not sent."
+            print(msg)
+            return False, msg
 
-    host = settings.SMTP_HOST.strip() if settings.SMTP_HOST else ("smtp.gmail.com" if "@gmail" in user.lower() else "smtp.gmail.com")
-    port = settings.SMTP_PORT or 587
-    sender_name = "Relink AI Lost & Found"
-    sender_header = f"{sender_name} <{user}>"
+    if user and password:
+        host = settings.SMTP_HOST.strip() if settings.SMTP_HOST else ("smtp.gmail.com" if "@gmail" in user.lower() else "smtp.gmail.com")
+        port = settings.SMTP_PORT or 587
+        sender_name = "Relink AI Lost & Found"
+        sender_header = f"{sender_name} <{user}>"
 
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"] = sender_header
-    msg["To"] = to_email
-    msg["Reply-To"] = user
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = subject
+        msg["From"] = sender_header
+        msg["To"] = to_email
+        msg["Reply-To"] = user
 
-    part1 = MIMEText(text_content, "plain", "utf-8")
-    part2 = MIMEText(html_content, "html", "utf-8")
-    msg.attach(part1)
-    msg.attach(part2)
+        part1 = MIMEText(text_content, "plain", "utf-8")
+        part2 = MIMEText(html_content, "html", "utf-8")
+        msg.attach(part1)
+        msg.attach(part2)
 
-    errors = []
+        # Attempt A: Port 587 with STARTTLS
+        try:
+            with smtplib.SMTP(host, port, timeout=10) as server:
+                server.ehlo()
+                server.starttls()
+                server.ehlo()
+                server.login(user, password)
+                server.sendmail(user, [to_email], msg.as_string())
+            success_msg = f"Live email successfully delivered to {to_email} via SMTP ({host}:{port})!"
+            print(f"\n[SUCCESS] 🚀 {success_msg}\n")
+            return True, success_msg
+        except Exception as e587:
+            err_str = f"Port {port} STARTTLS failed: {e587}"
+            errors.append(err_str)
+            print(f"[WARN] {err_str}. Trying direct SSL on port 465...")
 
-    # Attempt 1: Port 587 with STARTTLS
-    try:
-        with smtplib.SMTP(host, port, timeout=12) as server:
-            server.ehlo()
-            server.starttls()
-            server.ehlo()
-            server.login(user, password)
-            server.sendmail(user, [to_email], msg.as_string())
-        success_msg = f"Live email successfully delivered to {to_email} via SMTP ({host}:{port})!"
-        print(f"\n[SUCCESS] 🚀 {success_msg}\n")
-        return True, success_msg
-    except Exception as e587:
-        err_str = f"Port {port} STARTTLS failed: {e587}"
-        errors.append(err_str)
-        print(f"[WARN] {err_str}. Trying direct SSL on port 465...")
-
-    # Attempt 2: Port 465 with SSL (recommended fallback on cloud hosts that block port 587)
-    try:
-        with smtplib.SMTP_SSL(host, 465, timeout=12) as server:
-            server.login(user, password)
-            server.sendmail(user, [to_email], msg.as_string())
-        success_msg = f"Live email successfully delivered to {to_email} via SMTP_SSL ({host}:465)!"
-        print(f"\n[SUCCESS] 🚀 {success_msg}\n")
-        return True, success_msg
-    except Exception as e465:
-        err_str = f"Port 465 SSL failed: {e465}"
-        errors.append(err_str)
-        print(f"[ERROR] Live email delivery failed to {to_email}: {e465}\n")
+        # Attempt B: Port 465 with SSL
+        try:
+            with smtplib.SMTP_SSL(host, 465, timeout=10) as server:
+                server.login(user, password)
+                server.sendmail(user, [to_email], msg.as_string())
+            success_msg = f"Live email successfully delivered to {to_email} via SMTP_SSL ({host}:465)!"
+            print(f"\n[SUCCESS] 🚀 {success_msg}\n")
+            return True, success_msg
+        except Exception as e465:
+            err_str = f"Port 465 SSL failed: {e465}"
+            errors.append(err_str)
+            print(f"[ERROR] Live email delivery failed to {to_email}: {e465}\n")
 
     return False, " | ".join(errors)
 
 def test_smtp_delivery(target_email: Optional[str] = None) -> Dict[str, Any]:
     """
-    Diagnostic tool to test live SMTP credentials and dispatch a test alert.
+    Diagnostic tool to test live email delivery credentials and dispatch a test alert.
     """
     user, password = get_smtp_credentials()
+    resend_key = (os.getenv("RESEND_API_KEY") or "").strip()
+    brevo_key = (os.getenv("BREVO_API_KEY") or "").strip()
+
     to_email = (target_email or user or "").strip()
 
     if not to_email:
-        return {
-            "success": False,
-            "smtp_user": user or "NOT CONFIGURED",
-            "password_configured": bool(password),
-            "password_length": len(password) if password else 0,
-            "error": "No recipient email provided and SMTP_USER is empty.",
-            "suggestion": "Set SMTP_USER and SMTP_PASSWORD in Render Environment Variables or .env"
-        }
+        to_email = "test@relinkai.com"
 
-    subject = "⚡ Relink AI - Live SMTP Diagnostics Test"
-    text_content = f"Hello,\n\nThis is a test notification confirming that Relink AI email dispatch is working!\nSender: {user}\nRecipient: {to_email}\n"
+    subject = "⚡ Relink AI - Live Email Diagnostics Test"
+    text_content = f"Hello,\n\nThis is a test notification confirming that Relink AI email dispatch is working!\nSender: {user or 'Relink System'}\nRecipient: {to_email}\n"
     html_content = f"""
     <div style="font-family:sans-serif; background:#0f172a; color:#f8fafc; padding:24px; border-radius:12px;">
       <h2 style="color:#a855f7;">⚡ Relink AI Email System Verified!</h2>
-      <p>Your SMTP credentials are functioning correctly.</p>
-      <p>Automated match alerts (>= 70%) will now be sent directly to lost item owners.</p>
+      <p>Your email credentials are functioning correctly.</p>
+      <p>Automated match alerts (&gt;= 70%) will now be sent directly to lost item owners.</p>
     </div>
     """
 
     success, message = _send_smtp_email(to_email, subject, text_content, html_content)
+
+    # Diagnostic suggestion
+    suggestion = None
+    if not success:
+        if "Network is unreachable" in message:
+            suggestion = (
+                "Render Free tier blocks direct SMTP socket connections (ports 25, 465, 587) to prevent spam. "
+                "SOLUTION: Use Resend (Free 3,000 emails/month). Create a free account at https://resend.com, "
+                "copy your API key, and add RESEND_API_KEY in Render Environment Variables. "
+                "It sends instantly over HTTPS (Port 443) which Render never blocks!"
+            )
+        elif "535" in message:
+            suggestion = (
+                "Google rejected the password. Please generate a fresh 16-character App Password at "
+                "https://myaccount.google.com/apppasswords and update SMTP_PASSWORD on Render."
+            )
+
     return {
         "success": success,
         "recipient": to_email,
-        "smtp_user": user,
+        "smtp_user": user or "None",
+        "resend_active": bool(resend_key),
+        "brevo_active": bool(brevo_key),
         "password_configured": bool(password),
-        "password_clean_len": len(password) if password else 0,
         "detail": message,
-        "troubleshooting": (
-            "If 535 error occurs: Google has rejected the App Password. Generate a new 16-character App Password at https://myaccount.google.com/apppasswords with 2-Step Verification enabled."
-            if not success and "535" in message else None
-        )
+        "troubleshooting": suggestion
     }
 
 def _deliver_and_record(
@@ -159,7 +231,7 @@ def _deliver_and_record(
     html_content: str,
     match_id: Optional[int] = None
 ):
-    """Deliver email via SMTP and mark matches.email_notified = 1 only on actual success."""
+    """Deliver email and mark matches.email_notified = 1 only on actual success."""
     success, detail = _send_smtp_email(to_email, subject, text_content, html_content)
     if success and match_id:
         try:
@@ -186,7 +258,6 @@ def send_match_notification(
     composite_score = float(match_data.get("composite_score", 0.0))
     score_pct = int(round(composite_score * 100))
 
-    # Verify threshold (must be >= 70%)
     if composite_score < settings.EMAIL_ALERT_THRESHOLD:
         return {"status": "skipped", "reason": f"Score {score_pct}% below 70% threshold"}
 
@@ -284,7 +355,6 @@ Multimodal Lost & Found Intelligence System
 
     match_id = match_data.get("id")
 
-    # Store in database notifications table
     if conn:
         try:
             cur = conn.cursor()
@@ -307,7 +377,6 @@ Multimodal Lost & Found Intelligence System
         except Exception as e:
             print(f"[WARN] Failed to record notification in DB: {e}")
 
-    # Deliver directly via SMTP in background thread and update match row on real success
     threading.Thread(
         target=_deliver_and_record,
         args=(recipient_email, subject, text_content, html_content, match_id),
@@ -318,7 +387,7 @@ Multimodal Lost & Found Intelligence System
     print(f"📧 [RELINK AI EMAIL ALERT TRIGGERED] (Match: {score_pct}% >= 70%)")
     print(f"   To      : {recipient_email} ({recipient_name})")
     print(f"   Subject : {subject}")
-    print(f"   Action  : Direct SMTP Email Delivery Dispatched")
+    print(f"   Action  : Direct Email Delivery Dispatched")
     print("=" * 65 + "\n")
 
     return {
@@ -326,5 +395,5 @@ Multimodal Lost & Found Intelligence System
         "recipient_email": recipient_email,
         "score_pct": score_pct,
         "subject": subject,
-        "delivery_mode": "smtp"
+        "delivery_mode": "auto"
     }
